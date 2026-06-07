@@ -747,12 +747,13 @@ function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw) {
     let best_v = null;
     let feasiblePolygon = [];
     let optimalPts = [];
+    let sortedFeasible = [];
     
     if (feasiblePts.length === 0) {
         status = 'INFEASIBLE';
         drawPts = rawIntersections.length > 0 ? rawIntersections : [[0,0], [5,0], [0,5]];
     } else {
-        const sortedFeasible = sortClockwiseJS(feasiblePts);
+        sortedFeasible = sortClockwiseJS(feasiblePts);
         const zValues = sortedFeasible.map(pt => c[0] * pt[0] + c[1] * pt[1]);
         best_z = optType === 'MAX' ? Math.max(...zValues) : Math.min(...zValues);
         
