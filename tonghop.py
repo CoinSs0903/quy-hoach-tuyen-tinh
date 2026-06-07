@@ -192,6 +192,7 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
         new_eqs[entering] = (new_l_const, new_l_coeffs)
         eqs = new_eqs
         
+        basic.remove(leaving)
         basic.append(entering)
         non_basic.remove(entering)
         non_basic.append(leaving)

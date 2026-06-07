@@ -144,6 +144,7 @@ def solve_dictionary_web(eqs_orig, basic_orig, non_basic_orig, prob_type, method
         new_eqs[entering] = (new_l_const, new_l_coeffs)
         eqs = new_eqs
         
+        basic.remove(leaving)
         basic.append(entering)
         non_basic.remove(entering)
         non_basic.append(leaving)
@@ -174,14 +175,14 @@ def solve_dictionary_web(eqs_orig, basic_orig, non_basic_orig, prob_type, method
         }
         
     return {
-        "success": True,
-        "status": "optimal",
+        "success": initial_feasible,
+        "status": "optimal" if initial_feasible else "infeasible",
         "initial_feasible": initial_feasible,
-        "message": "Đã tìm thấy nghiệm tối ưu!" if initial_feasible else "Đã tìm thấy nghiệm tối ưu (Lưu ý: Từ điển xuất phát không khả thi!)",
+        "message": "Đã tìm thấy nghiệm tối ưu!" if initial_feasible else "Từ điển xuất phát không khả thi (Cần sử dụng phương pháp 2 Pha).",
         "steps": steps,
-        "optimal_value": opt_val,
-        "optimal_value_str": opt_val_str,
-        "optimal_solution": optimal_solution
+        "optimal_value": opt_val if initial_feasible else None,
+        "optimal_value_str": opt_val_str if initial_feasible else "-",
+        "optimal_solution": optimal_solution if initial_feasible else None
     }
 
 def solve_scipy_2phase_web(c, A, B, prob_type):
@@ -410,6 +411,246 @@ def solve_geometry_web(opt_type, c, A_ub, b_ub, original_constraints_raw=None):
         
     return result
 
+def reconstruct_objective(eqs, basic, non_basic, z_orig):
+    c_z, coeffs_z = copy.deepcopy(z_orig)
+    new_c_z = c_z
+    new_coeffs_z = {}
+    
+    for v, coeff in coeffs_z.items():
+        if v in basic:
+            const_v, coeffs_v = eqs[v]
+            new_c_z += coeff * const_v
+            for kv, coeff_kv in coeffs_v.items():
+                new_coeffs_z[kv] = new_coeffs_z.get(kv, Fraction(0)) + coeff * coeff_kv
+        else:
+            new_coeffs_z[v] = new_coeffs_z.get(v, Fraction(0)) + coeff
+            
+    return new_c_z, new_coeffs_z
+
+def solve_2phase_dictionary_web(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland"):
+    initial_feasible = all(eqs_orig[b][0] >= 0 for b in basic_orig)
+    
+    if initial_feasible:
+        res = solve_dictionary_web(eqs_orig, basic_orig, non_basic_orig, prob_type, method)
+        return {
+            "success": res["success"],
+            "status": res["status"],
+            "message": "Từ điển xuất phát đã khả thi. Bỏ qua Pha 1. " + res["message"],
+            "initial_feasible": True,
+            "phase1_steps": [],
+            "phase2_steps": res["steps"],
+            "optimal_value": res.get("optimal_value"),
+            "optimal_value_str": res.get("optimal_value_str"),
+            "optimal_solution": res.get("optimal_solution")
+        }
+        
+    eqs = copy.deepcopy(eqs_orig)
+    basic = copy.deepcopy(basic_orig)
+    non_basic = copy.deepcopy(non_basic_orig)
+    
+    # Save original z
+    z_orig = copy.deepcopy(eqs['z'])
+    
+    # Introduce x0
+    non_basic.append('x0')
+    eqs['z_aux'] = (Fraction(0), {'x0': Fraction(1)})
+    
+    # Add x0 to all basic equations
+    for b in basic:
+        const, coeffs = eqs[b]
+        new_coeffs = copy.deepcopy(coeffs)
+        new_coeffs['x0'] = Fraction(1)
+        eqs[b] = (const, new_coeffs)
+        
+    phase1_steps = []
+    
+    def build_step_equations():
+        equations = []
+        equations.append(get_eq_structure('z', eqs['z_aux'][0], eqs['z_aux'][1], non_basic))
+        for b in sorted(basic, key=var_key):
+            equations.append(get_eq_structure(b, eqs[b][0], eqs[b][1], non_basic))
+        return equations
+        
+    # Step 0: Initial Phase 1 dictionary
+    phase1_steps.append({
+        "iteration": 0,
+        "equations": build_step_equations(),
+        "entering": 'x0',
+        "leaving": None,
+        "status": "running",
+        "current_z": float(eqs['z_aux'][0])
+    })
+    
+    leaving = min(basic, key=lambda b: eqs[b][0])
+    entering = 'x0'
+    phase1_steps[-1]["leaving"] = leaving
+    
+    # Pivot on (leaving, x0)
+    p = eqs[leaving][1][entering]
+    new_l_const = eqs[leaving][0] / -p
+    new_l_coeffs = {leaving: Fraction(1) / p}
+    for v in non_basic:
+        if v != entering:
+            c = eqs[leaving][1].get(v, Fraction(0))
+            if c != 0: new_l_coeffs[v] = c / -p
+            
+    new_eqs = {}
+    for k in eqs:
+        if k == leaving: continue
+        c_k, coeffs_k = eqs[k]
+        a_ke = coeffs_k.get(entering, Fraction(0))
+        new_c_k = c_k + a_ke * new_l_const
+        new_coeffs_k = {}
+        if a_ke != 0:
+            new_coeffs_k[leaving] = a_ke / p
+        for v in non_basic:
+            if v != entering:
+                old_c = coeffs_k.get(v, Fraction(0))
+                new_c = old_c + a_ke * new_l_coeffs.get(v, Fraction(0))
+                if new_c != 0: new_coeffs_k[v] = new_c
+        new_eqs[k] = (new_c_k, new_coeffs_k)
+        
+    new_eqs[entering] = (new_l_const, new_l_coeffs)
+    eqs = new_eqs
+    
+    basic.remove(leaving)
+    basic.append(entering)
+    non_basic.remove(entering)
+    non_basic.append(leaving)
+    
+    iteration = 1
+    max_iterations = 1000
+    
+    while iteration < max_iterations:
+        equations = build_step_equations()
+        z_coeffs = eqs['z_aux'][1]
+        entering_var = None
+        
+        for v in sorted(non_basic, key=var_key):
+            if z_coeffs.get(v, Fraction(0)) < 0:
+                entering_var = v
+                break
+                
+        step_data = {
+            "iteration": iteration,
+            "equations": equations,
+            "entering": entering_var,
+            "leaving": None,
+            "status": "running",
+            "current_z": float(eqs['z_aux'][0])
+        }
+        
+        if entering_var is None:
+            step_data["status"] = "optimal"
+            phase1_steps.append(step_data)
+            break
+            
+        leaving_var = None
+        min_ratio = float('inf')
+        for b in sorted(basic, key=var_key):
+            coeff = eqs[b][1].get(entering_var, Fraction(0))
+            if coeff < 0:
+                ratio = eqs[b][0] / abs(coeff)
+                if ratio < min_ratio:
+                    min_ratio = ratio
+                    leaving_var = b
+                elif ratio == min_ratio and leaving_var is not None:
+                    if var_key(b) < var_key(leaving_var):
+                        leaving_var = b
+                        
+        step_data["leaving"] = leaving_var
+        phase1_steps.append(step_data)
+        
+        if leaving_var is None:
+            return {
+                "success": False,
+                "status": "unbounded",
+                "message": "Pha 1 gặp lỗi: bài toán phụ không giới nội.",
+                "initial_feasible": False,
+                "phase1_steps": phase1_steps,
+                "phase2_steps": []
+            }
+            
+        p = eqs[leaving_var][1][entering_var]
+        new_l_const = eqs[leaving_var][0] / -p
+        new_l_coeffs = {leaving_var: Fraction(1) / p}
+        for v in non_basic:
+            if v != entering_var:
+                c = eqs[leaving_var][1].get(v, Fraction(0))
+                if c != 0: new_l_coeffs[v] = c / -p
+                
+        new_eqs = {}
+        for k in eqs:
+            if k == leaving_var: continue
+            c_k, coeffs_k = eqs[k]
+            a_ke = coeffs_k.get(entering_var, Fraction(0))
+            new_c_k = c_k + a_ke * new_l_const
+            new_coeffs_k = {}
+            if a_ke != 0:
+                new_coeffs_k[leaving_var] = a_ke / p
+            for v in non_basic:
+                if v != entering_var:
+                    old_c = coeffs_k.get(v, Fraction(0))
+                    new_c = old_c + a_ke * new_l_coeffs.get(v, Fraction(0))
+                    if new_c != 0: new_coeffs_k[v] = new_c
+            new_eqs[k] = (new_c_k, new_coeffs_k)
+            
+        new_eqs[entering_var] = (new_l_const, new_l_coeffs)
+        eqs = new_eqs
+        
+        basic.remove(leaving_var)
+        basic.append(entering_var)
+        non_basic.remove(entering_var)
+        non_basic.append(leaving_var)
+        
+        iteration += 1
+        
+    opt_z_aux = eqs['z_aux'][0]
+    if opt_z_aux > 0:
+        return {
+            "success": False,
+            "status": "infeasible",
+            "message": f"Bài toán vô nghiệm! Giá trị tối ưu Pha 1: x0 = {float(opt_z_aux):.4f} > 0.",
+            "initial_feasible": False,
+            "phase1_steps": phase1_steps,
+            "phase2_steps": []
+        }
+        
+    if 'x0' in basic:
+        basic.remove('x0')
+        if 'x0' in eqs:
+            del eqs['x0']
+            
+    if 'x0' in non_basic:
+        non_basic.remove('x0')
+        
+    for k in list(eqs.keys()):
+        const, coeffs = eqs[k]
+        if 'x0' in coeffs:
+            new_coeffs = coeffs.copy()
+            del new_coeffs['x0']
+            eqs[k] = (const, new_coeffs)
+            
+    if 'z_aux' in eqs:
+        del eqs['z_aux']
+        
+    new_c_z, new_coeffs_z = reconstruct_objective(eqs, basic, non_basic, z_orig)
+    eqs['z'] = (new_c_z, new_coeffs_z)
+    
+    res2 = solve_dictionary_web(eqs, basic, non_basic, prob_type, method)
+    
+    return {
+        "success": res2["success"],
+        "status": res2["status"],
+        "message": "Pha 1 tìm được nghiệm khả thi. " + res2["message"],
+        "initial_feasible": False,
+        "phase1_steps": phase1_steps,
+        "phase2_steps": res2["steps"],
+        "optimal_value": res2.get("optimal_value"),
+        "optimal_value_str": res2.get("optimal_value_str"),
+        "optimal_solution": res2.get("optimal_solution")
+    }
+
 def solve_all_methods(prob_type, z_coeffs_list, constraints_raw):
     # Prepares data
     num_vars = len(z_coeffs_list)
@@ -493,6 +734,9 @@ def solve_all_methods(prob_type, z_coeffs_list, constraints_raw):
     
     # SciPy 2-Phase
     results["scipy"] = solve_scipy_2phase_web(c_np, A_np, b_np, prob_type)
+    
+    # 2-Phase Simplex Dictionary
+    results["two_phase"] = solve_2phase_dictionary_web(eqs, basic, non_basic, prob_type, method="Bland")
     
     # Geometry (if 2 variables)
     if num_vars == 2:
