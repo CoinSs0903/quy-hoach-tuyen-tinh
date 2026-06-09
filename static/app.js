@@ -297,10 +297,10 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
     }
     
     return {
-        success: initialFeasible,
-        status: initialFeasible ? "optimal" : "infeasible",
+        success: true,
+        status: "optimal",
         initial_feasible: initialFeasible,
-        message: initialFeasible ? "Đã tìm thấy nghiệm tối ưu!" : "Từ điển xuất phát không khả thi (Cần sử dụng phương pháp 2 Pha).",
+        message: "Đã tìm thấy nghiệm tối ưu!",
         steps: steps,
         optimal_value: optVal,
         optimal_value_str: optValStr,

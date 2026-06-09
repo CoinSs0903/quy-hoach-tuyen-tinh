@@ -175,14 +175,14 @@ def solve_dictionary_web(eqs_orig, basic_orig, non_basic_orig, prob_type, method
         }
         
     return {
-        "success": initial_feasible,
-        "status": "optimal" if initial_feasible else "infeasible",
+        "success": True,
+        "status": "optimal",
         "initial_feasible": initial_feasible,
-        "message": "Đã tìm thấy nghiệm tối ưu!" if initial_feasible else "Từ điển xuất phát không khả thi (Cần sử dụng phương pháp 2 Pha).",
+        "message": "Đã tìm thấy nghiệm tối ưu!",
         "steps": steps,
-        "optimal_value": opt_val if initial_feasible else None,
-        "optimal_value_str": opt_val_str if initial_feasible else "-",
-        "optimal_solution": optimal_solution if initial_feasible else None
+        "optimal_value": opt_val,
+        "optimal_value_str": opt_val_str,
+        "optimal_solution": optimal_solution
     }
 
 def solve_scipy_2phase_web(c, A, B, prob_type):
