@@ -1053,6 +1053,7 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw, varSigns) {
 // State variables for dynamic forms
 let constraintCount = 0;
 let activeTab = 'tab-geometry';
+let numVars = 2;
 
 // Example problems preset
 const EXAMPLES = {
@@ -1092,19 +1093,50 @@ const EXAMPLES = {
     }
 };
 
+// Dynamic Z coefficient inputs management
+function updateZCoeffsUI(n) {
+    const container = document.getElementById('z-coeffs-container');
+    const existingValues = {};
+    container.querySelectorAll('.z-coeff-input').forEach(input => {
+        const idx = input.getAttribute('data-var-index');
+        existingValues[idx] = input.value;
+    });
+    
+    container.innerHTML = '';
+    for (let i = 1; i <= n; i++) {
+        const item = document.createElement('div');
+        item.className = 'coeff-item';
+        
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = 'any';
+        input.className = 'z-coeff-input coeff-input-inline';
+        input.setAttribute('data-var-index', i);
+        input.required = true;
+        input.value = existingValues[i] !== undefined ? existingValues[i] : (i === 1 ? '3' : '1');
+        
+        const label = document.createElement('span');
+        label.innerHTML = `x<sub>${i}</sub>`;
+        
+        item.appendChild(input);
+        item.appendChild(label);
+        container.appendChild(item);
+        
+        if (i < n) {
+            const plus = document.createElement('span');
+            plus.className = 'plus-sign';
+            plus.innerHTML = '+';
+            container.appendChild(plus);
+        }
+    }
+}
+
 // Dynamic variable sign rows management
-function updateVariableSignsUI() {
-    const z_coeffs_str = document.getElementById('z_coeffs').value.trim();
+function updateVariableSignsUI(n) {
     const listContainer = document.getElementById('var-signs-list');
     const sectionContainer = document.getElementById('var-signs-section');
     
-    if (!z_coeffs_str) {
-        sectionContainer.style.display = 'none';
-        return;
-    }
-    
-    const num_vars = z_coeffs_str.split(/\s+/).length;
-    if (num_vars === 0) {
+    if (n === 0) {
         sectionContainer.style.display = 'none';
         return;
     }
@@ -1119,7 +1151,7 @@ function updateVariableSignsUI() {
     });
     
     listContainer.innerHTML = '';
-    for (let i = 1; i <= num_vars; i++) {
+    for (let i = 1; i <= n; i++) {
         const row = document.createElement('div');
         row.className = 'var-sign-row';
         
@@ -1159,33 +1191,136 @@ function updateVariableSignsUI() {
     }
 }
 
+// Sync existing constraints columns when num of variables changes
+function syncConstraintsUI(n) {
+    const rows = document.querySelectorAll('.constraint-row');
+    rows.forEach(row => {
+        const coeffsGrid = row.querySelector('.constraint-coeffs-container');
+        
+        // Save existing values
+        const existingValues = {};
+        coeffsGrid.querySelectorAll('.constr-coeff-input').forEach(input => {
+            const idx = input.getAttribute('data-var-index');
+            existingValues[idx] = input.value;
+        });
+        
+        coeffsGrid.innerHTML = '';
+        for (let i = 1; i <= n; i++) {
+            const item = document.createElement('div');
+            item.className = 'coeff-item';
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.step = 'any';
+            input.className = 'constr-coeff-input coeff-input-inline';
+            input.setAttribute('data-var-index', i);
+            input.required = true;
+            input.value = existingValues[i] !== undefined ? existingValues[i] : '0';
+            
+            const label = document.createElement('span');
+            label.innerHTML = `x<sub>${i}</sub>`;
+            
+            item.appendChild(input);
+            item.appendChild(label);
+            coeffsGrid.appendChild(item);
+            
+            if (i < n) {
+                const plus = document.createElement('span');
+                plus.className = 'plus-sign';
+                plus.innerHTML = '+';
+                coeffsGrid.appendChild(plus);
+            }
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    const numVarsInput = document.getElementById('num_vars');
+    numVarsInput.addEventListener('input', () => {
+        const n = parseInt(numVarsInput.value) || 2;
+        if (n < 2) return;
+        numVars = n;
+        updateZCoeffsUI(n);
+        updateVariableSignsUI(n);
+        syncConstraintsUI(n);
+    });
+    
     loadExample('infeasible');
-    document.getElementById('btn-add-constraint').addEventListener('click', () => addConstraintRow());
+    document.getElementById('btn-add-constraint').addEventListener('click', () => addConstraintRow(numVars));
     document.getElementById('solver-form').addEventListener('submit', handleFormSubmit);
-    document.getElementById('z_coeffs').addEventListener('input', updateVariableSignsUI);
-    updateVariableSignsUI();
     switchTab('tab-geometry');
 });
 
 // Dynamic constraint rows management
-function addConstraintRow(coeffs = '', sign = '<=', rhs = '') {
+function addConstraintRow(n, coeffsStr = '', sign = '<=', rhs = '') {
     constraintCount++;
     const container = document.getElementById('constraints-list');
     
     const row = document.createElement('div');
     row.className = 'constraint-row';
     row.id = `constraint-row-${constraintCount}`;
-    row.innerHTML = `
-        <input type="text" class="constraint-coeffs" placeholder="Hệ số (ví dụ: 2 1)" value="${coeffs}" required>
-        <select class="constraint-sign">
-            <option value="<=" ${sign === '<=' ? 'selected' : ''}>&le;</option>
-            <option value=">=" ${sign === '>=' ? 'selected' : ''}>&ge;</option>
-            <option value="=" ${sign === '=' ? 'selected' : ''}>=</option>
-        </select>
-        <input type="number" step="any" class="constraint-rhs" placeholder="Hệ số tự do" value="${rhs}" required>
-        <button type="button" class="btn-remove" onclick="removeConstraintRow(${constraintCount})">&times;</button>
+    
+    // Create constraint coefficients grid
+    const coeffsGrid = document.createElement('div');
+    coeffsGrid.className = 'constraint-coeffs-container coeffs-grid';
+    
+    const prepopulatedCoeffs = coeffsStr ? coeffsStr.split(/\s+/) : [];
+    
+    for (let i = 1; i <= n; i++) {
+        const item = document.createElement('div');
+        item.className = 'coeff-item';
+        
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.step = 'any';
+        input.className = 'constr-coeff-input coeff-input-inline';
+        input.setAttribute('data-var-index', i);
+        input.required = true;
+        input.value = prepopulatedCoeffs[i - 1] !== undefined ? prepopulatedCoeffs[i - 1] : '0';
+        
+        const label = document.createElement('span');
+        label.innerHTML = `x<sub>${i}</sub>`;
+        
+        item.appendChild(input);
+        item.appendChild(label);
+        coeffsGrid.appendChild(item);
+        
+        if (i < n) {
+            const plus = document.createElement('span');
+            plus.className = 'plus-sign';
+            plus.innerHTML = '+';
+            coeffsGrid.appendChild(plus);
+        }
+    }
+    
+    row.appendChild(coeffsGrid);
+    
+    // Select and RHS inputs
+    const select = document.createElement('select');
+    select.className = 'constraint-sign';
+    select.innerHTML = `
+        <option value="<=" ${sign === '<=' ? 'selected' : ''}>&le;</option>
+        <option value=">=" ${sign === '>=' ? 'selected' : ''}>&ge;</option>
+        <option value="=" ${sign === '=' ? 'selected' : ''}>=</option>
     `;
+    row.appendChild(select);
+    
+    const rhsInput = document.createElement('input');
+    rhsInput.type = 'number';
+    rhsInput.step = 'any';
+    rhsInput.className = 'constraint-rhs';
+    rhsInput.placeholder = 'Hệ số tự do';
+    rhsInput.required = true;
+    rhsInput.value = rhs;
+    row.appendChild(rhsInput);
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.onclick = () => removeConstraintRow(row.id.replace('constraint-row-', ''));
+    row.appendChild(removeBtn);
+    
     container.appendChild(row);
 }
 
@@ -1211,12 +1346,24 @@ function loadExample(key) {
     } else {
         document.getElementById('goal-max').checked = true;
     }
-    document.getElementById('z_coeffs').value = example.z_coeffs;
+    
+    const coeffs = example.z_coeffs.split(/\s+/);
+    const n = coeffs.length;
+    document.getElementById('num_vars').value = n;
+    numVars = n;
+    
     clearConstraints();
-    example.constraints.forEach(c => {
-        addConstraintRow(c.coeffs, c.sign, c.rhs);
+    updateZCoeffsUI(n);
+    updateVariableSignsUI(n);
+    
+    const zInputs = document.querySelectorAll('.z-coeff-input');
+    coeffs.forEach((c, idx) => {
+        if (zInputs[idx]) zInputs[idx].value = c;
     });
-    updateVariableSignsUI();
+    
+    example.constraints.forEach(c => {
+        addConstraintRow(n, c.coeffs, c.sign, c.rhs);
+    });
 }
 
 // Tabs switching
@@ -1250,41 +1397,36 @@ function handleFormSubmit(e) {
     document.getElementById('solve-loader').classList.remove('hidden');
     
     const prob_type = document.querySelector('input[name="prob_type"]:checked').value;
-    const z_coeffs_str = document.getElementById('z_coeffs').value.trim();
-    const z_coeffs = z_coeffs_str.split(/\s+/).map(Number);
+    
+    // Read Z coefficients from inputs
+    const z_coeffs = Array.from(document.querySelectorAll('.z-coeff-input'))
+        .map(input => Number(input.value || 0));
+        
     const rows = document.querySelectorAll('.constraint-row');
     const constraints = [];
     
-    let parseError = null;
     rows.forEach(row => {
-        const coeffsStr = row.querySelector('.constraint-coeffs').value.trim();
-        const coeffs = coeffsStr.split(/\s+/).map(Number);
+        // Read coefficients for this constraint row
+        const coeffs = Array.from(row.querySelectorAll('.constr-coeff-input'))
+            .map(input => Number(input.value || 0));
         const sign = row.querySelector('.constraint-sign').value;
         const rhs = Number(row.querySelector('.constraint-rhs').value);
         
-        if (coeffs.length !== z_coeffs.length) {
-            parseError = `Số lượng hệ số trong ràng buộc (${coeffs.length}) không trùng khớp với số lượng ẩn số của hàm Z (${z_coeffs.length})!`;
-        }
         constraints.push({ coeffs, sign, rhs });
     });
     
-    if (parseError) {
-        alert(parseError);
-        hideLoader();
-        return;
+    // Extract selected variable signs
+    const signSelects = document.querySelectorAll('.var-sign-select');
+    const sortedSelects = Array.from(signSelects).sort((a, b) => {
+        return Number(a.getAttribute('data-var-index')) - Number(b.getAttribute('data-var-index'));
+    });
+    const varSigns = sortedSelects.map(sel => sel.value);
+    while (varSigns.length < z_coeffs.length) {
+        varSigns.push('>=0');
     }
     
     setTimeout(() => {
         try {
-            const signSelects = document.querySelectorAll('.var-sign-select');
-            const sortedSelects = Array.from(signSelects).sort((a, b) => {
-                return Number(a.getAttribute('data-var-index')) - Number(b.getAttribute('data-var-index'));
-            });
-            const varSigns = sortedSelects.map(sel => sel.value);
-            while (varSigns.length < z_coeffs.length) {
-                varSigns.push('>=0');
-            }
-            
             const results = solveAllMethodsJS(prob_type, z_coeffs, constraints, varSigns);
             const data = {
                 success: true,

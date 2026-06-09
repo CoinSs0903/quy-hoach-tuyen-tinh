@@ -919,3 +919,51 @@ input[type="radio"]:checked + .goal-label.label-max {
     font-size: 0.825rem;
     width: 130px;
 }
+
+/* Dynamic coefficient input layout */
+.coeffs-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.25rem;
+}
+
+.coeff-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.coeff-input-inline {
+    background-color: rgba(15, 23, 42, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.5rem;
+    color: var(--text-primary);
+    width: 55px;
+    text-align: center;
+    outline: none;
+    font-size: 0.875rem;
+    transition: border-color 0.2s ease;
+}
+
+.coeff-input-inline:focus {
+    border-color: var(--color-primary);
+}
+
+.coeff-item span {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.plus-sign {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    margin: 0 0.15rem;
+}
+
+.constraint-coeffs-container {
+    flex: 2;
+    min-width: 140px;
+}

@@ -29,14 +29,24 @@
                     </div>
                 </div>
 
+                <!-- Number of Variables -->
+                <div class="form-section">
+                    <label for="num_vars" class="section-title">Số lượng ẩn số (Biến số)</label>
+                    <div class="input-wrapper">
+                        <input type="number" id="num_vars" min="2" max="10" value="2" required>
+                    </div>
+                    <div class="input-desc">Chọn số lượng ẩn quyết định của bài toán.</div>
+                </div>
+
                 <!-- Z Coefficients -->
                 <div class="form-section">
-                    <label for="z_coeffs" class="section-title">Hệ số Z (ví dụ: 3 1)</label>
-                    <div class="input-wrapper">
-                        <span class="input-prefix">Z =</span>
-                        <input type="text" id="z_coeffs" placeholder="3 1" value="3 1" required>
+                    <label class="section-title">Hệ số Hàm mục tiêu Z</label>
+                    <div class="input-wrapper" style="border: none; padding: 0;">
+                        <span class="input-prefix" style="margin-top: 0.5rem; font-size: 1rem; align-self: flex-start;">Z =</span>
+                        <div id="z-coeffs-container" class="coeffs-grid" style="width: 100%;">
+                            <!-- Dynamic inputs will be inserted here -->
+                        </div>
                     </div>
-                    <div class="input-desc">Nhập các hệ số cách nhau bởi khoảng trắng.</div>
                 </div>
 
                 <!-- Variable Signs -->
@@ -222,6 +232,6 @@
     </div>
 
     <!-- Script -->
-    <script src="static/app.js?v=4"></script>
+    <script src="static/app.js?v=5"></script>
 </body>
 </html>
