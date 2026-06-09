@@ -1659,7 +1659,7 @@ function displayResults(data) {
     } else {
         summaryBadge.classList.add("badge-infeasible");
         summaryBadge.textContent = "Vô nghiệm (Infeasible)";
-        summaryZ.textContent = "z max = - vô cùng, z min = + vô cùng";
+        summaryZ.textContent = data.prob_type === 'max' ? "z max = -∞" : "z min = +∞";
         summaryX.textContent = "Không có miền chấp nhận";
     }
     
@@ -1740,9 +1740,9 @@ function displayResults(data) {
         } else {
             scipySol.textContent = "Không tìm thấy nghiệm tối ưu.";
             if (results.scipy.status === "infeasible" || (results.two_phase && results.two_phase.status === 'infeasible')) {
-                scipyOpt.textContent = "z max = - vô cùng, z min = + vô cùng";
+                scipyOpt.textContent = data.prob_type === 'max' ? "z max = -∞" : "z min = +∞";
             } else if (results.scipy.status === "unbounded") {
-                scipyOpt.textContent = data.prob_type === 'max' ? "dương vô cùng" : "âm vô cùng";
+                scipyOpt.textContent = data.prob_type === 'max' ? "+∞" : "-∞";
             } else {
                 scipyOpt.textContent = "-";
             }
@@ -2008,10 +2008,11 @@ function renderSimplexSteps(container, result, probType, allResults = null) {
                     .join(', ');
                 detailMsg = `Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm (${negVars}). Vui lòng tham khảo phương pháp 2 Pha.`;
             }
+            const optValStr = probType === 'max' ? "z max = -&infin;" : "z min = +&infin;";
             summary.innerHTML = `
                 <h3>KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE)</h3>
                 <p style="margin-top: 0.5rem; color: var(--color-danger);">${detailMsg}</p>
-                <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>z max = - vô cùng, z min = + vô cùng</b></p>
+                <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>${optValStr}</b></p>
             `;
         }
     } else {
