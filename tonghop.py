@@ -8,7 +8,15 @@ from scipy.optimize import linprog
 
 
 def var_key(v):
-    return (0 if v.startswith('x') else 1, int(v[1:]))
+    if v in ['z', 'z_aux']:
+        return (-1, 0, '')
+    type_prefix = 0 if v.startswith('x') else 1
+    match = re.match(r'^([xw])(\d+)(.*)$', v)
+    if match:
+        num = int(match.group(2))
+        suffix = match.group(3)
+        return (type_prefix, num, suffix)
+    return (type_prefix, 999, v)
 
 def format_eq(name, const, coeffs, non_basic):
     res = ""
@@ -41,18 +49,45 @@ def parse_input():
     z_inputs = list(map(Fraction, input("Hệ số: ").split()))
     num_vars = len(z_inputs)
     
+    print("\nNhập điều kiện dấu cho từng biến số x_i (nhập '>=0' hoặc '<=0' hoặc 'td' cho tự do):")
+    var_signs = []
+    for i in range(1, num_vars + 1):
+        sign = input(f"Điều kiện của x{i} (Mặc định >=0): ").strip().lower()
+        if sign == '<=0':
+            var_signs.append('<=0')
+        elif sign in ['td', 'tu do', 'tự do', 'free']:
+            var_signs.append('free')
+        else:
+            var_signs.append('>=0')
+            
+    # Build standard variables mapping
+    var_mapping = {}
+    for i in range(1, num_vars + 1):
+        sign = var_signs[i - 1]
+        if sign == '>=0':
+            var_mapping[f'x{i}'] = [(f'x{i}', Fraction(1))]
+        elif sign == '<=0':
+            var_mapping[f'x{i}'] = [(f"x{i}'", Fraction(-1))]
+        elif sign == 'free':
+            var_mapping[f'x{i}'] = [(f'x{i}+', Fraction(1)), (f'x{i}-', Fraction(-1))]
+
     z_coeffs = {}
+    non_basic = []
     for i, val in enumerate(z_inputs, 1):
         if prob_type == 'max':
-            z_coeffs[f'x{i}'] = -val  
+            base_val = -val
         else:
-            z_coeffs[f'x{i}'] = val   
+            base_val = val
+            
+        mapping = var_mapping[f'x{i}']
+        for std_var, factor in mapping:
+            z_coeffs[std_var] = z_coeffs.get(std_var, Fraction(0)) + base_val * factor
+            if std_var not in non_basic:
+                non_basic.append(std_var)
+                
+    non_basic.sort(key=var_key)
             
     num_constraints = int(input("\nNhập số lượng ràng buộc (không tính x_i >= 0): "))
-    
-    eqs = {'z': (Fraction(0), z_coeffs)}
-    non_basic = [f'x{i}' for i in range(1, num_vars + 1)]
-    basic = []
     
     geo_constraints = []
     
@@ -75,7 +110,6 @@ def parse_input():
             flat_constraints_data.append({'coeffs': coeffs_list, 'sign': sign, 'rhs': rhs})
             
     eqs = {'z': (Fraction(0), z_coeffs)}
-    non_basic = [f'x{i}' for i in range(1, num_vars + 1)]
     basic = []
     
     for i, constr in enumerate(flat_constraints_data, 1):
@@ -83,21 +117,31 @@ def parse_input():
         sign = constr['sign']
         rhs = constr['rhs']
         
+        # Build standard coefficients in terms of std_vars
+        std_coeffs = {}
+        for j, val in enumerate(coeffs_list, 1):
+            if val == 0: continue
+            mapping = var_mapping[f'x{j}']
+            for std_var, factor in mapping:
+                std_coeffs[std_var] = std_coeffs.get(std_var, Fraction(0)) + val * factor
+                
+        factor = Fraction(1)
         if sign == '>=':
-            coeffs_list = [-c for c in coeffs_list]
+            factor = Fraction(-1)
             rhs = -rhs
             
         w_name = f'w{i}'
         basic.append(w_name)
         
         w_coeffs = {}
-        for j, val in enumerate(coeffs_list, 1):
-            if val != 0:
-                w_coeffs[f'x{j}'] = -val  
+        for std_var, val in std_coeffs.items():
+            final_val = val * factor
+            if final_val != 0:
+                w_coeffs[std_var] = -final_val
                 
         eqs[w_name] = (rhs, w_coeffs)
         
-    return eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints
+    return eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints, var_signs, z_inputs
 
 def display_standard_form(geo_constraints, eqs, num_vars, prob_type):
     """Hàm in ra Dạng Chuẩn của bài toán trước khi giải"""
@@ -107,70 +151,53 @@ def display_standard_form(geo_constraints, eqs, num_vars, prob_type):
     
     # Hàm mục tiêu
     z_str = ""
-    for i in range(1, num_vars + 1):
-        val = eqs['z'][1].get(f'x{i}', Fraction(0))
+    std_vars = sorted(list(eqs['z'][1].keys()), key=var_key)
+    for v in std_vars:
+        val = eqs['z'][1].get(v, Fraction(0))
         val = -val if prob_type == 'max' else val
         if val == 0: continue
         sign = "+" if val > 0 and z_str != "" else ("-" if val < 0 else "")
         abs_val = abs(val)
         val_str = "" if abs_val == 1 else str(abs_val)
-        z_str += f" {sign} {val_str}x{i}"
-    
+        z_str += f" {sign} {val_str}{v}"
+        
     z_str = z_str.strip() if z_str else "0"
     print(f"Hàm mục tiêu: Z = {z_str} -> {prob_type.upper()}")
-    print("Các ràng buộc (đã thêm biến bù/thặng dư):")
+    print("Các ràng buộc dạng chuẩn (biến chuẩn hóa >= 0):")
     
     # Ràng buộc
-    var_index = num_vars + 1
-    all_vars = [f"x{i}" for i in range(1, num_vars + 1)]
-    
-    for idx, constr in enumerate(geo_constraints, 1):
-        eq_str = ""
-        coeffs = constr['coeffs']
-        sign = constr['sign']
-        rhs = constr['rhs']
-        
-        # Đảm bảo vế phải >= 0
-        if rhs < 0:
-            coeffs = [-c for c in coeffs]
-            rhs = -rhs
-            if sign == '<=': sign = '>='
-            elif sign == '>=': sign = '<='
-            
-        for i, val in enumerate(coeffs, 1):
+    all_vars = sorted(list(eqs['z'][1].keys()), key=var_key)
+    idx = 1
+    for b in sorted(eqs.keys(), key=var_key):
+        if b in ['z', 'z_aux']: continue
+        const, coeffs = eqs[b]
+        row_terms = []
+        for v in sorted(coeffs.keys(), key=var_key):
+            val = -coeffs[v]
             if val == 0: continue
-            op = "+" if val > 0 and eq_str != "" else ("-" if val < 0 else "")
+            sign = "+" if val > 0 and len(row_terms) > 0 else ("-" if val < 0 else "")
             abs_val = abs(val)
             val_str = "" if abs_val == 1 else str(abs_val)
-            eq_str += f" {op} {val_str}x{i}"
-            
-        eq_str = eq_str.strip()
+            row_terms.append(f"{sign} {val_str}{v}".strip())
         
-        if sign == '<=':
-            new_var = f"x{var_index}"
-            eq_str += f" + {new_var}"
-            all_vars.append(new_var)
-            var_index += 1
-        elif sign == '>=':
-            new_var = f"x{var_index}"
-            eq_str += f" - {new_var}"
-            all_vars.append(new_var)
-            var_index += 1
+        row_terms.append(f"+ {b}")
+        if b not in all_vars:
+            all_vars.append(b)
             
-        print(f"  ({idx}) {eq_str} = {rhs}")
+        eq_str = " ".join(row_terms).replace(" + -", " - ").replace(" + +", " + ")
+        if eq_str.startswith("+ "):
+            eq_str = eq_str[2:]
+        print(f"  ({idx}) {eq_str} = {const}")
+        idx += 1
         
+    all_vars.sort(key=var_key)
     print(f"Điều kiện không âm: {', '.join(all_vars)} >= 0")
     print(f"{'-'*60}")
 
-def convert_data_for_other_methods(geo_constraints, num_vars, prob_type, eqs):
-    z_tuple = eqs['z'][1]
+def convert_data_for_other_methods(geo_constraints, num_vars, prob_type, z_inputs):
     c_list = []
-    for i in range(1, num_vars + 1):
-        val = z_tuple.get(f'x{i}', Fraction(0))
-        if prob_type == 'max':
-            c_list.append(float(-val))
-        else:
-            c_list.append(float(val))
+    for val in z_inputs:
+        c_list.append(float(val))
             
     A_ub = []
     b_ub = []
@@ -194,7 +221,28 @@ def convert_data_for_other_methods(geo_constraints, num_vars, prob_type, eqs):
     return np.array(c_list), np.array(A_ub) if A_ub else None, np.array(b_ub) if b_ub else None, np.array(A_eq) if A_eq else None, np.array(b_eq) if b_eq else None
 
 
-def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland"):
+def reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars):
+    original_solution = {}
+    for i in range(1, num_vars + 1):
+        sign = var_signs[i - 1] if var_signs else '>=0'
+        
+        if sign == '>=0':
+            v_name = f'x{i}'
+            val = eqs[v_name][0] if v_name in basic else Fraction(0)
+        elif sign == '<=0':
+            v_name = f"x{i}'"
+            val = -(eqs[v_name][0] if v_name in basic else Fraction(0))
+        elif sign == 'free':
+            v_plus = f'x{i}+'
+            v_minus = f'x{i}-'
+            val_plus = eqs[v_plus][0] if v_plus in basic else Fraction(0)
+            val_minus = eqs[v_minus][0] if v_minus in basic else Fraction(0)
+            val = val_plus - val_minus
+            
+        original_solution[f'x{i}'] = val
+    return original_solution
+
+def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland", var_signs=None, num_vars=None):
     import copy
     eqs = copy.deepcopy(eqs_orig)
     basic = copy.deepcopy(basic_orig)
@@ -297,22 +345,39 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
     else:
         print(f"Giá trị cực tiểu Z (min) = {z_value}")
     
-    print("Nghiệm tối ưu:")
+    print("Nghiệm tối ưu (biến chuẩn hóa):")
     all_vars = sorted(list(set(basic + non_basic)), key=var_key)
     for v in all_vars:
         if v.startswith('x'):
             val = eqs[v][0] if v in basic else 0
             print(f"  {v} = {val}")
+            
+    if var_signs and num_vars:
+        print("Nghiệm tối ưu (biến ban đầu):")
+        orig_sol = reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars)
+        for i in range(1, num_vars + 1):
+            print(f"  x{i} = {orig_sol[f'x{i}']}")
 
 
-def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type):
+def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
     print(f"\n{'='*60}")
     print(f"PHƯƠNG PHÁP: 2 PHA (SỬ DỤNG SCIPY OPTIMIZE - HIGHS)")
     print(f"{'='*60}")
     
     c_input = c.copy() if prob_type == 'min' else -c.copy()
-    x_bounds = (0, None)
-    bounds = [x_bounds] * len(c)
+    if var_signs:
+        bounds = []
+        for sign in var_signs:
+            if sign == '>=0':
+                bounds.append((0, None))
+            elif sign == '<=0':
+                bounds.append((None, 0))
+            elif sign == 'free':
+                bounds.append((None, None))
+            else:
+                bounds.append((0, None))
+    else:
+        bounds = [(0, None)] * len(c)
     
     res = linprog(c_input, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
     
@@ -369,7 +434,7 @@ def get_anchor_point(a1, a2, b_val, x_lim, y_lim):
     elif len(unique_pts) == 1: return unique_pts[0]
     else: return (0, b_val/a2) if abs(a2) > 1e-7 else (b_val/a1, 0)
 
-def solve_geometry(opt_type, c, geo_constraints):
+def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
     print(f"\n{'='*60}")
     print(f"PHƯƠNG PHÁP: HÌNH HỌC TRỰỢT HÀM MỤC TIÊU (2 ẨN)")
     print(f"{'='*60}")
@@ -379,8 +444,22 @@ def solve_geometry(opt_type, c, geo_constraints):
     for gc in geo_constraints:
         constraints.append({'a': np.array([float(gc['coeffs'][0]), float(gc['coeffs'][1])]), 'sign': gc['sign'], 'b': float(gc['rhs'])})
     
-    constraints.append({'a': np.array([1.0, 0.0]), 'sign': '>=', 'b': 0.0})
-    constraints.append({'a': np.array([0.0, 1.0]), 'sign': '>=', 'b': 0.0})
+    # Add bounds based on var_signs
+    if var_signs:
+        if var_signs[0] == '>=0':
+            constraints.append({'a': np.array([1.0, 0.0]), 'sign': '>=', 'b': 0.0})
+        elif var_signs[0] == '<=0':
+            constraints.append({'a': np.array([1.0, 0.0]), 'sign': '<=', 'b': 0.0})
+        # If free, do nothing
+        
+        if var_signs[1] == '>=0':
+            constraints.append({'a': np.array([0.0, 1.0]), 'sign': '>=', 'b': 0.0})
+        elif var_signs[1] == '<=0':
+            constraints.append({'a': np.array([0.0, 1.0]), 'sign': '<=', 'b': 0.0})
+        # If free, do nothing
+    else:
+        constraints.append({'a': np.array([1.0, 0.0]), 'sign': '>=', 'b': 0.0})
+        constraints.append({'a': np.array([0.0, 1.0]), 'sign': '>=', 'b': 0.0})
     
     M = 10000 
     calc_constraints = constraints.copy()
@@ -524,8 +603,8 @@ def solve_geometry(opt_type, c, geo_constraints):
 
 def main():
     try:
-        eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints = parse_input()
-        c_np, A_ub, b_ub, A_eq, b_eq = convert_data_for_other_methods(geo_constraints, num_vars, prob_type, eqs)
+        eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints, var_signs, z_inputs = parse_input()
+        c_np, A_ub, b_ub, A_eq, b_eq = convert_data_for_other_methods(geo_constraints, num_vars, prob_type, z_inputs)
         
         while True:
             print("\n" + "="*45)
@@ -545,23 +624,23 @@ def main():
                 display_standard_form(geo_constraints, eqs, num_vars, prob_type)
             
             if choice == '1':
-                solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh")
+                solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh", var_signs=var_signs, num_vars=num_vars)
             elif choice == '2':
-                solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland")
+                solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland", var_signs=var_signs, num_vars=num_vars)
             elif choice == '3':
-                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type)
+                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=var_signs)
             elif choice == '4':
                 if num_vars != 2:
                     print(f"\n[Lỗi] Phương pháp hình học chỉ áp dụng cho bài toán có 2 ẩn số. Bài toán hiện tại có {num_vars} ẩn.")
                 else:
-                    solve_geometry(prob_type, c_np, geo_constraints)
+                    solve_geometry(prob_type, c_np, geo_constraints, var_signs=var_signs)
             elif choice == '5':
                 print("\n>>> BẮT ĐẦU CHẠY THỬ NGHIỆM ĐỒNG THỜI 4 PHƯƠNG PHÁP <<<")
-                solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh")
-                solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland")
-                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type)
+                solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh", var_signs=var_signs, num_vars=num_vars)
+                solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland", var_signs=var_signs, num_vars=num_vars)
+                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=var_signs)
                 if num_vars == 2:
-                    solve_geometry(prob_type, c_np, geo_constraints)
+                    solve_geometry(prob_type, c_np, geo_constraints, var_signs=var_signs)
                 else:
                     print(f"\n[Bỏ qua hình học] Số biến = {num_vars} (!= 2)")
             elif choice == '6':
