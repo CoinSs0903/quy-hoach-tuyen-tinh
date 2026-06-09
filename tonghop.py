@@ -294,7 +294,12 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
                         leaving = b
                     
         if leaving is None:
-            print("\n>> Bài toán không giới nội ! Z -> +vô cùng")
+            print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (UNBOUNDED) {'='*20}")
+            z_limit = "+vô cùng" if prob_type == 'max' else "-vô cùng"
+            z_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+            print(f"Hàm mục tiêu {z_label} -> {z_limit}")
+            print("Bài toán không có nghiệm tối ưu hữu hạn.")
+            print(f"{'='*60}")
             return
             
         print(f"\n=> Biến XOAY: Biến VÀO = {entering}, Biến RA = {leaving}")
@@ -338,25 +343,38 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
         
         iteration += 1
 
-    print(f"\n{'*'*15} KẾT QUẢ TỐI ƯU ({method.upper()}) {'*'*15}")
+    # Check if there is any negative basic variable in standard dictionary
+    has_negative_basic = any(eqs[b][0] < 0 for b in basic)
+    if has_negative_basic:
+        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
+        neg_vars = ", ".join(f"{b} = {eqs[b][0]}" for b in sorted(basic, key=var_key) if eqs[b][0] < 0)
+        print(f"Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm ({neg_vars}).")
+        print("Vui lòng tham khảo phương pháp 2 Pha.")
+        print(f"{'='*60}")
+        return
+
+    print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU ({method.upper()}) {'='*20}")
     z_value = eqs['z'][0]
     if prob_type == 'max':
-        print(f"Giá trị cực đại Z (max) = {-z_value}")
+        opt_val = -z_value
+        print(f"Giá trị cực đại Z (max) = {opt_val}")
     else:
-        print(f"Giá trị cực tiểu Z (min) = {z_value}")
+        opt_val = z_value
+        print(f"Giá trị cực tiểu Z (min) = {opt_val}")
     
-    print("Nghiệm tối ưu (biến chuẩn hóa):")
-    all_vars = sorted(list(set(basic + non_basic)), key=var_key)
-    for v in all_vars:
-        if v.startswith('x'):
-            val = eqs[v][0] if v in basic else 0
-            print(f"  {v} = {val}")
-            
     if var_signs and num_vars:
-        print("Nghiệm tối ưu (biến ban đầu):")
         orig_sol = reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars)
-        for i in range(1, num_vars + 1):
-            print(f"  x{i} = {orig_sol[f'x{i}']}")
+        var_names = ", ".join(f"x{i}" for i in range(1, num_vars + 1))
+        var_vals = ", ".join(str(orig_sol[f'x{i}']) for i in range(1, num_vars + 1))
+        print(f"Nghiệm tối ưu: x* = ({var_names}) = ({var_vals})")
+        
+    all_vars = sorted(list(set(basic + non_basic)), key=var_key)
+    dict_vals = []
+    for v in all_vars:
+        val = eqs[v][0] if v in basic else 0
+        dict_vals.append(f"{v} = {val}")
+    print(f"Biến chuẩn hóa: {', '.join(dict_vals)}")
+    print(f"{'='*60}")
 
 
 def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
@@ -382,13 +400,20 @@ def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
     res = linprog(c_input, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
     
     if res.success:
-        print(f"Trạng thái thành công: {res.message}")
-        for i, val in enumerate(res.x, 1):
-            print(f"Nghiệm tối ưu x{i} = {val:.4f}")
+        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU {'='*20}")
         opt_val = res.fun if prob_type == 'min' else -res.fun
-        print(f"Giá trị tối ưu Z = {opt_val:.4f}")
+        opt_label = "cực tiểu Z (min)" if prob_type == 'min' else "cực đại Z (max)"
+        print(f"Giá trị {opt_label} = {opt_val:.4f}")
+        
+        # Coordinate vector
+        var_names = ", ".join(f"x{i}" for i in range(1, len(res.x) + 1))
+        var_vals = ", ".join(f"{val:.4f}" for val in res.x)
+        print(f"Nghiệm tối ưu: x* = ({var_names}) = ({var_vals})")
+        print(f"{'='*60}")
     else:
+        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
         print(f"Không tìm thấy nghiệm tối ưu. Lý do: {res.message}")
+        print(f"{'='*60}")
 
 def check_feasibility(pt, constraints, tol=1e-7):
     for constr in constraints:

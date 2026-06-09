@@ -1529,11 +1529,13 @@ function displayResults(data) {
             p1Container.innerHTML = '<div class="info-card">Từ điển xuất phát đã khả thi (các hệ số tự do đều không âm). Bỏ qua Pha 1.</div>';
             renderSimplexSteps(p2Container, {
                 success: results.two_phase.success,
+                status: results.two_phase.status,
                 message: results.two_phase.message,
                 steps: results.two_phase.phase2_steps,
                 optimal_value: results.two_phase.optimal_value,
                 optimal_value_str: results.two_phase.optimal_value_str,
                 optimal_solution: results.two_phase.optimal_solution,
+                original_solution: results.two_phase.original_solution,
                 initial_feasible: true
             }, data.prob_type);
         } else {
@@ -1550,11 +1552,13 @@ function displayResults(data) {
             if (results.two_phase.status !== 'infeasible' && results.two_phase.phase2_steps && results.two_phase.phase2_steps.length > 0) {
                 renderSimplexSteps(p2Container, {
                     success: results.two_phase.success,
+                    status: results.two_phase.status,
                     message: results.two_phase.message,
                     steps: results.two_phase.phase2_steps,
                     optimal_value: results.two_phase.optimal_value,
                     optimal_value_str: results.two_phase.optimal_value_str,
                     optimal_solution: results.two_phase.optimal_solution,
+                    original_solution: results.two_phase.original_solution,
                     initial_feasible: true
                 }, data.prob_type);
             } else {
