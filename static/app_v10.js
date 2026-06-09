@@ -1723,25 +1723,29 @@ function renderSimplexSteps(container, result, probType) {
         summary.style.borderTop = '3px solid var(--color-success)';
         
         const zLabel = probType === 'max' ? "cực đại Z (max)" : "cực tiểu Z (min)";
-        const mappingSection = result.original_solution ? `
-            <p style="margin-top: 0.75rem;"><b>Nghiệm quy đổi sang ẩn gốc:</b></p>
-            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; margin-bottom: 0.75rem;">
-                ${Object.entries(result.original_solution)
-                    .map(([k, v]) => `<li>${formatVarHTML(k)} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
-                    .join('')}
-            </ul>
-        ` : '';
+        
+        // Format original solution as a vector x* = (x1, x2) = (4, 0)
+        const origSolList = Object.entries(result.original_solution || {});
+        let origSolText = '';
+        if (origSolList.length > 0) {
+            const varNames = origSolList.map(([k, v]) => formatVarHTML(k)).join(', ');
+            const varVals = origSolList.map(([k, v]) => v.str).join(', ');
+            origSolText = `<p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm tối ưu: <b>x* = (${varNames}) = (${varVals})</b></p>`;
+        }
+        
+        // Format dictionary variables in a single line (sorted)
+        const dictSolList = Object.entries(result.optimal_solution || {})
+            .sort((a, b) => varKeyCompare(a[0], b[0]))
+            .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
+            .join(', ');
         
         summary.innerHTML = `
             <h3>KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU</h3>
-            <p style="margin-top: 0.5rem;">Giá trị ${zLabel} = <b>${result.optimal_value_str}</b></p>
-            <p style="margin-top: 0.5rem;"><b>Nghiệm tối ưu từ điển:</b></p>
-            <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
-                ${Object.entries(result.optimal_solution)
-                    .map(([k, v]) => `<li>${formatVarHTML(k)} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
-                    .join('')}
-            </ul>
-            ${mappingSection}
+            <p style="margin-top: 0.5rem; font-size: 1.05rem;">Giá trị ${zLabel} = <b>${result.optimal_value_str}</b></p>
+            ${origSolText}
+            <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                <b>Biến chuẩn hóa:</b> ${dictSolList}
+            </p>
         `;
     } else if (result.status === 'unbounded') {
         summary.style.borderTop = '3px solid var(--color-danger)';
