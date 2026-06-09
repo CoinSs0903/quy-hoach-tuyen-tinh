@@ -90,7 +90,21 @@
 
         <!-- Main Content: Outputs -->
         <main class="main-content">
-
+            <!-- Initial state / Welcome -->
+            <div id="welcome-screen" class="results-card welcome-card">
+                <div class="welcome-icon">📈</div>
+                <h2>Chào mừng tới LP Solver Pro</h2>
+                <p>Nhập hệ số hàm mục tiêu và các ràng buộc bên trái để bắt đầu giải bài toán quy hoạch tuyến tính. Kết quả sẽ được hiển thị với các bước xoay từ điển chi tiết và biểu đồ hình học trực quan.</p>
+                <div class="quick-start-info">
+                    <strong>Hỗ trợ giải thuật:</strong>
+                    <ul>
+                        <li>Phương pháp Đơn hình Từ điển (Dantzig)</li>
+                        <li>Quy tắc chống vòng lặp Bland</li>
+                        <li>Phương pháp 2 Pha (SciPy HiGHS)</li>
+                        <li>Biểu đồ hình học trượt hàm mục tiêu (cho 2 ẩn)</li>
+                    </ul>
+                </div>
+            </div>
 
             <!-- Loader -->
             <div id="solve-loader" class="loader-container hidden">
