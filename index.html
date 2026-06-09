@@ -130,15 +130,15 @@
                 </div>
 
                 <!-- Method Navigation Tabs -->
-                <div class="tab-navigation">
-                    <button class="tab-btn active" onclick="switchTab('tab-geometry')">Biểu đồ hình học</button>
+                <div class="tab-navigation" style="display: none;">
+                    <button class="tab-btn" onclick="switchTab('tab-geometry')">Biểu đồ hình học</button>
                     <button class="tab-btn" onclick="switchTab('tab-dantzig')">Đơn hình Dantzig</button>
                     <button class="tab-btn" onclick="switchTab('tab-bland')">Quy tắc Bland</button>
-                    <button class="tab-btn" onclick="switchTab('tab-two-phase')">Đơn hình 2 Pha</button>
+                    <button class="tab-btn active" onclick="switchTab('tab-two-phase')">Đơn hình 2 Pha</button>
                 </div>
 
                 <!-- Tab: Geometry -->
-                <div id="tab-geometry" class="tab-content active-content">
+                <div id="tab-geometry" class="tab-content">
                     <div class="geometry-layout">
                         <div class="chart-container">
                             <svg id="geometry-svg" viewBox="0 0 800 600">
@@ -202,7 +202,7 @@
                 </div>
 
                 <!-- Tab: 2 Phase Simplex -->
-                <div id="tab-two-phase" class="tab-content">
+                <div id="tab-two-phase" class="tab-content active-content">
                     <div class="results-card">
                         <h3>Các bước giải theo Đơn hình 2 Pha (Từ điển)</h3>
                         
@@ -232,6 +232,6 @@
     </div>
 
     <!-- Script -->
-    <script src="static/app.js?v=5"></script>
+    <script src="static/app.js?v=6"></script>
 </body>
 </html>

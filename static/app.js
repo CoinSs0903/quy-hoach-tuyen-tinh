@@ -1052,7 +1052,7 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw, varSigns) {
 
 // State variables for dynamic forms
 let constraintCount = 0;
-let activeTab = 'tab-geometry';
+let activeTab = 'tab-two-phase';
 let numVars = 2;
 
 // Example problems preset
@@ -1248,7 +1248,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadExample('infeasible');
     document.getElementById('btn-add-constraint').addEventListener('click', () => addConstraintRow(numVars));
     document.getElementById('solver-form').addEventListener('submit', handleFormSubmit);
-    switchTab('tab-geometry');
+    switchTab('tab-two-phase');
 });
 
 // Dynamic constraint rows management
@@ -1590,17 +1590,10 @@ function displayResults(data) {
     }
     
     // 4. Geometry Plot (only for 2 variables)
-    const geomTabBtn = document.querySelector('.tab-btn[onclick*="tab-geometry"]');
     if (data.num_vars === 2 && results.geometry) {
-        geomTabBtn.classList.remove('hidden');
         drawGeometryChart(results.geometry);
-        switchTab('tab-geometry');
-    } else {
-        geomTabBtn.classList.add('hidden');
-        if (activeTab === 'tab-geometry') {
-            switchTab('tab-dantzig');
-        }
     }
+    switchTab('tab-two-phase');
 }
 
 // Render Simplex Steps equations grid
