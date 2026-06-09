@@ -393,7 +393,7 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
         if leaving is None:
             print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (UNBOUNDED) {'='*20}")
             z_limit = "+∞" if prob_type == 'max' else "-∞"
-            z_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+            z_label = "z max" if prob_type == 'max' else "z min"
             print(f"Hàm mục tiêu {z_label} -> {z_limit}")
             print("Bài toán không có nghiệm tối ưu hữu hạn.")
             print(f"{'='*60}")
@@ -477,7 +477,7 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
             neg_vars = ", ".join(f"{b} = {eqs[b][0]}" for b in sorted(basic, key=var_key) if eqs[b][0] < 0)
             print(f"Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm ({neg_vars}).")
             print("Vui lòng tham khảo phương pháp 2 Pha.")
-            opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+            opt_label = "z max" if prob_type == 'max' else "z min"
             opt_val_disp = "-∞" if prob_type == 'max' else "+∞"
             print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
             print(f"{'='*60}")
@@ -572,7 +572,7 @@ def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
     else:
         print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
         print(f"Không tìm thấy nghiệm tối ưu. Lý do: {res.message}")
-        opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+        opt_label = "z max" if prob_type == 'max' else "z min"
         opt_val_disp = "-∞" if prob_type == 'max' else "+∞"
         print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
         print(f"{'='*60}")
@@ -681,7 +681,7 @@ def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
     if len(feasible_pts) == 0:
         status = 'INFEASIBLE'
         print("KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (Infeasible)")
-        opt_label = "Z (max)" if opt_type.upper() == 'MAX' else "Z (min)"
+        opt_label = "z max" if opt_type.upper() == 'MAX' else "z min"
         opt_val_disp = "-∞" if opt_type.upper() == 'MAX' else "+∞"
         print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
         draw_pts = raw_intersections 
@@ -695,7 +695,8 @@ def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
         if is_unbounded:
             status = 'UNBOUNDED'
             inf_val = "+∞" if opt_type.upper() == 'MAX' else "-∞"
-            print(f"KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (Unbounded) -> Z -> {inf_val}")
+            opt_label = "z max" if opt_type.upper() == 'MAX' else "z min"
+            print(f"KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (Unbounded) -> {opt_label} -> {inf_val}")
             draw_pts = [pt for pt in feasible_pts if not any(abs(abs(pt[i]) - M) < 1e-5 for i in range(2))]
         elif len(optimal_pts) > 1:
             max_dist = 0
@@ -792,6 +793,12 @@ def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
 
 
 def main():
+    import sys
+    if sys.platform.startswith('win'):
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+        except Exception:
+            pass
     try:
         eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints, var_signs, z_inputs = parse_input()
         c_np, A_ub, b_ub, A_eq, b_eq = convert_data_for_other_methods(geo_constraints, num_vars, prob_type, z_inputs)
