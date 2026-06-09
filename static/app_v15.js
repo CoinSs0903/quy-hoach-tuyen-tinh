@@ -1641,13 +1641,13 @@ function displayResults(data) {
     } else {
         summaryBadge.classList.add("badge-infeasible");
         summaryBadge.textContent = "Vô nghiệm (Infeasible)";
-        summaryZ.textContent = data.prob_type === 'max' ? "âm vô cùng" : "dương vô cùng";
+        summaryZ.textContent = "z max = - vô cùng, z min = + vô cùng";
         summaryX.textContent = "Không có miền chấp nhận";
     }
     
     // 2. Simplex Steps (Dantzig & Bland)
-    renderSimplexSteps(document.getElementById('dantzig-steps'), results.dantzig, data.prob_type);
-    renderSimplexSteps(document.getElementById('bland-steps'), results.bland, data.prob_type);
+    renderSimplexSteps(document.getElementById('dantzig-steps'), results.dantzig, data.prob_type, results);
+    renderSimplexSteps(document.getElementById('bland-steps'), results.bland, data.prob_type, results);
     
     // 2.5 Two Phase Simplex Steps
     const p1Container = document.getElementById('two-phase-p1-steps');
@@ -1722,7 +1722,7 @@ function displayResults(data) {
         } else {
             scipySol.textContent = "Không tìm thấy nghiệm tối ưu.";
             if (results.scipy.status === "infeasible" || (results.two_phase && results.two_phase.status === 'infeasible')) {
-                scipyOpt.textContent = data.prob_type === 'max' ? "âm vô cùng" : "dương vô cùng";
+                scipyOpt.textContent = "z max = - vô cùng, z min = + vô cùng";
             } else if (results.scipy.status === "unbounded") {
                 scipyOpt.textContent = data.prob_type === 'max' ? "dương vô cùng" : "âm vô cùng";
             } else {
@@ -1763,7 +1763,7 @@ function formatVarHTML(name) {
     return name;
 }
 
-function renderSimplexSteps(container, result, probType) {
+function renderSimplexSteps(container, result, probType, allResults = null) {
     container.innerHTML = '';
     
     if (!result) {
@@ -1943,21 +1943,59 @@ function renderSimplexSteps(container, result, probType) {
             <p style="margin-top: 0.5rem;">Bài toán không có nghiệm tối ưu hữu hạn.</p>
         `;
     } else if (result.status === 'infeasible' || hasNegativeBasic) {
-        summary.style.borderTop = '3px solid var(--color-danger)';
-        const zLabel = probType === 'max' ? "Z (max)" : "Z (min)";
-        let detailMsg = result.message;
-        if (hasNegativeBasic) {
-            const negVars = Object.entries(result.optimal_solution)
-                .filter(([k, v]) => v.val < -1.0e-7)
-                .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
-                .join(', ');
-            detailMsg = `Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm (${negVars}). Vui lòng tham khảo phương pháp 2 Pha.`;
+        let overallFeasible = false;
+        let overallValStr = "";
+        let overallSol = null;
+        if (allResults) {
+            if (allResults.scipy && allResults.scipy.success) {
+                overallFeasible = true;
+                overallValStr = allResults.scipy.optimal_value.toFixed(4);
+                overallSol = allResults.scipy.solution;
+            } else if (allResults.two_phase && allResults.two_phase.status === 'optimal') {
+                overallFeasible = true;
+                overallValStr = allResults.two_phase.optimal_value.toFixed(4);
+                if (allResults.two_phase.original_solution) {
+                    overallSol = {};
+                    for (const [k, v] of Object.entries(allResults.two_phase.original_solution)) {
+                        overallSol[k] = v.val;
+                    }
+                }
+            }
         }
-        summary.innerHTML = `
-            <h3>KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE)</h3>
-            <p style="margin-top: 0.5rem; color: var(--color-danger);">${detailMsg}</p>
-            <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>${zLabel} = ${probType === 'max' ? "âm vô cùng" : "dương vô cùng"}</b></p>
-        `;
+        
+        if (overallFeasible) {
+            summary.style.borderTop = '3px solid var(--color-success)';
+            const zLabel = probType === 'max' ? "cực đại Z (max)" : "cực tiểu Z (min)";
+            let origSolText = '';
+            if (overallSol) {
+                const varNames = Object.keys(overallSol).map(formatVarHTML).join(', ');
+                const varVals = Object.values(overallSol).map(v => v.toFixed(4)).join(', ');
+                origSolText = `<p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm tối ưu: <b>x* = (${varNames}) = (${varVals})</b></p>`;
+            }
+            summary.innerHTML = `
+                <h3>KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU</h3>
+                <p style="margin-top: 0.5rem; font-size: 1.05rem;">Giá trị ${zLabel} = <b>${overallValStr}</b></p>
+                ${origSolText}
+                <p style="margin-top: 0.5rem; color: var(--color-warning); font-size: 0.9rem;">
+                    * Lưu ý: Từ điển xuất phát không khả thi, kết quả trên được tối ưu thông qua phương pháp 2 Pha / SciPy.
+                </p>
+            `;
+        } else {
+            summary.style.borderTop = '3px solid var(--color-danger)';
+            let detailMsg = result.message;
+            if (hasNegativeBasic) {
+                const negVars = Object.entries(result.optimal_solution)
+                    .filter(([k, v]) => v.val < -1.0e-7)
+                    .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
+                    .join(', ');
+                detailMsg = `Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm (${negVars}). Vui lòng tham khảo phương pháp 2 Pha.`;
+            }
+            summary.innerHTML = `
+                <h3>KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE)</h3>
+                <p style="margin-top: 0.5rem; color: var(--color-danger);">${detailMsg}</p>
+                <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>z max = - vô cùng, z min = + vô cùng</b></p>
+            `;
+        }
     } else {
         summary.style.borderTop = '3px solid var(--color-warning)';
         summary.innerHTML = `

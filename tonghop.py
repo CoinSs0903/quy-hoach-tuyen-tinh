@@ -297,6 +297,48 @@ def check_multiple_optimal_py(eqs, basic, non_basic, var_signs, num_vars):
             return sol2
     return None
 
+def is_problem_feasible_py(eqs, basic, non_basic):
+    from scipy.optimize import linprog
+    all_vars = sorted(list(non_basic) + list(basic), key=var_key)
+    var_to_idx = {v: i for i, v in enumerate(all_vars)}
+    A_eq = []
+    b_eq = []
+    for b in basic:
+        row = [0] * len(all_vars)
+        row[var_to_idx[b]] = 1
+        const, coeffs = eqs[b]
+        for nb, coeff in coeffs.items():
+            if nb in var_to_idx:
+                row[var_to_idx[nb]] = -float(coeff)
+        A_eq.append(row)
+        b_eq.append(float(const))
+    c = [0] * len(all_vars)
+    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=(0, None), method='highs')
+    return res.success, res
+
+def solve_feasible_dictionary_py(eqs, basic, non_basic, prob_type, var_signs, num_vars):
+    from scipy.optimize import linprog
+    all_vars = sorted(list(non_basic) + list(basic), key=var_key)
+    var_to_idx = {v: i for i, v in enumerate(all_vars)}
+    A_eq = []
+    b_eq = []
+    for b in basic:
+        row = [0] * len(all_vars)
+        row[var_to_idx[b]] = 1
+        const, coeffs = eqs[b]
+        for nb, coeff in coeffs.items():
+            if nb in var_to_idx:
+                row[var_to_idx[nb]] = -float(coeff)
+        A_eq.append(row)
+        b_eq.append(float(const))
+    c = [0] * len(all_vars)
+    z_const, z_coeffs = eqs['z']
+    for nb, coeff in z_coeffs.items():
+        c[var_to_idx[nb]] = float(coeff) if prob_type == 'min' else -float(coeff)
+    res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=(0, None), method='highs')
+    return res
+
+
 def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland", var_signs=None, num_vars=None):
     import copy
     eqs = copy.deepcopy(eqs_orig)
@@ -401,15 +443,43 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
     # Check if there is any negative basic variable in standard dictionary
     has_negative_basic = any(eqs[b][0] < 0 for b in basic)
     if has_negative_basic:
-        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
-        neg_vars = ", ".join(f"{b} = {eqs[b][0]}" for b in sorted(basic, key=var_key) if eqs[b][0] < 0)
-        print(f"Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm ({neg_vars}).")
-        print("Vui lòng tham khảo phương pháp 2 Pha.")
-        opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
-        opt_val_disp = "âm vô cùng" if prob_type == 'max' else "dương vô cùng"
-        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
-        print(f"{'='*60}")
-        return
+        # Check if the problem is actually feasible
+        is_feasible, res_feas = is_problem_feasible_py(eqs, basic, non_basic)
+        if is_feasible:
+            res_opt = solve_feasible_dictionary_py(eqs, basic, non_basic, prob_type, var_signs, num_vars)
+            print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU {'='*20}")
+            opt_val = res_opt.fun + float(eqs['z'][0]) if prob_type == 'min' else -res_opt.fun + float(eqs['z'][0])
+            opt_label = "cực tiểu Z (min)" if prob_type == 'min' else "cực đại Z (max)"
+            print(f"Giá trị {opt_label} = {opt_val:.4f}")
+            
+            all_vars = sorted(list(non_basic) + list(basic), key=var_key)
+            var_values = {v: res_opt.x[i] for i, v in enumerate(all_vars)}
+            
+            orig_sol = {}
+            if var_signs and num_vars:
+                for i in range(1, num_vars + 1):
+                    sign = var_signs[i - 1]
+                    if sign == '>=0':
+                        orig_sol[f'x{i}'] = var_values.get(f'x{i}', 0.0)
+                    elif sign == '<=0':
+                        orig_sol[f'x{i}'] = -var_values.get(f"x{i}'", 0.0)
+                    elif sign == 'free':
+                        orig_sol[f'x{i}'] = var_values.get(f'x{i}+', 0.0) - var_values.get(f'x{i}-', 0.0)
+            
+            if orig_sol:
+                var_names = ", ".join(f"x{i}" for i in range(1, num_vars + 1))
+                var_vals = ", ".join(f"{orig_sol[f'x{i}']:.4f}" for i in range(1, num_vars + 1))
+                print(f"Nghiệm tối ưu: x* = ({var_names}) = ({var_vals})")
+            print(f"{'='*60}")
+            return
+        else:
+            print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
+            neg_vars = ", ".join(f"{b} = {eqs[b][0]}" for b in sorted(basic, key=var_key) if eqs[b][0] < 0)
+            print(f"Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm ({neg_vars}).")
+            print("Vui lòng tham khảo phương pháp 2 Pha.")
+            print("Hàm mục tiêu: z max = - vô cùng, z min = + vô cùng")
+            print(f"{'='*60}")
+            return
 
     # Check for multiple optimal solutions
     orig_sol2 = None
@@ -500,9 +570,7 @@ def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
     else:
         print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
         print(f"Không tìm thấy nghiệm tối ưu. Lý do: {res.message}")
-        opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
-        opt_val_disp = "âm vô cùng" if prob_type == 'max' else "dương vô cùng"
-        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
+        print("Hàm mục tiêu: z max = - vô cùng, z min = + vô cùng")
         print(f"{'='*60}")
 
 def check_feasibility(pt, constraints, tol=1e-7):
@@ -609,9 +677,7 @@ def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
     if len(feasible_pts) == 0:
         status = 'INFEASIBLE'
         print("KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (Infeasible)")
-        opt_label = "Z (max)" if opt_type.upper() == 'MAX' else "Z (min)"
-        opt_val_disp = "âm vô cùng" if opt_type.upper() == 'MAX' else "dương vô cùng"
-        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
+        print("Hàm mục tiêu: z max = - vô cùng, z min = + vô cùng")
         draw_pts = raw_intersections 
     else:
         feasible_pts = sort_clockwise(feasible_pts)
