@@ -883,3 +883,39 @@ input[type="radio"]:checked + .goal-label.label-max {
     fill: var(--text-secondary);
     font-size: 12px;
 }
+
+/* Variable signs styles */
+.var-signs-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background-color: rgba(15, 23, 42, 0.4);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+}
+
+.var-sign-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.var-sign-row span {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.var-sign-select {
+    background-color: var(--color-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.35rem 0.5rem;
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+    font-size: 0.825rem;
+    width: 130px;
+}

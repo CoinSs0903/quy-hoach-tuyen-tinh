@@ -92,7 +92,8 @@ function varKeyCompare(a, b) {
     if (typeA !== typeB) return typeA - typeB;
     const numA = parseInt(a.substring(1));
     const numB = parseInt(b.substring(1));
-    return numA - numB;
+    if (numA !== numB) return numA - numB;
+    return a.localeCompare(b);
 }
 
 function getEqStructure(name, constVal, coeffs, nonBasic) {
@@ -693,7 +694,7 @@ function getAnchorPointJS(a1, a2, b, x_lim, y_lim) {
     }
 }
 
-function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw) {
+function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw, varSigns) {
     optType = optType.toUpperCase();
     const constraints = [];
     if (originalConstraintsRaw && originalConstraintsRaw.length > 0) {
@@ -711,8 +712,17 @@ function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw) {
     }
     
     // Boundaries
-    constraints.push({ a: [-1.0, 0.0], sign: '<=', b: 0.0 });
-    constraints.push({ a: [0.0, -1.0], sign: '<=', b: 0.0 });
+    const actualSigns = varSigns || ['>=0', '>=0'];
+    if (actualSigns[0] === '>=0') {
+        constraints.push({ a: [-1.0, 0.0], sign: '<=', b: 0.0 });
+    } else if (actualSigns[0] === '<=0') {
+        constraints.push({ a: [1.0, 0.0], sign: '<=', b: 0.0 });
+    }
+    if (actualSigns[1] === '>=0') {
+        constraints.push({ a: [0.0, -1.0], sign: '<=', b: 0.0 });
+    } else if (actualSigns[1] === '<=0') {
+        constraints.push({ a: [0.0, 1.0], sign: '<=', b: 0.0 });
+    }
     
     const M = 10000;
     const calcConstraints = [...constraints];
@@ -858,25 +868,89 @@ function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw) {
     return result;
 }
 
-// Orchestrator for local math solving execution
-function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw) {
-    const numVars = zCoeffsList.length;
-    
-    const zCoeffs = {};
+// Reconstruct original solution from standard solution
+function reconstructOriginalSolution(stdSol, varSigns, numVars) {
+    const originalSolution = {};
     for (let i = 1; i <= numVars; i++) {
-        const val = zCoeffsList[i - 1];
-        if (probType === 'max') {
-            zCoeffs[`x${i}`] = new Fraction(-val);
-        } else {
-            zCoeffs[`x${i}`] = new Fraction(val);
+        const sign = varSigns[i - 1] || '>=0';
+        let valFrac = new Fraction(0);
+        
+        if (sign === '>=0') {
+            const vName = `x${i}`;
+            const vData = stdSol[vName] ? new Fraction(stdSol[vName].str) : new Fraction(0);
+            valFrac = vData;
+        } else if (sign === '<=0') {
+            const vName = `x${i}'`;
+            const vData = stdSol[vName] ? new Fraction(stdSol[vName].str) : new Fraction(0);
+            valFrac = vData.neg();
+        } else if (sign === 'free') {
+            const vPlusName = `x${i}+`;
+            const vMinusName = `x${i}-`;
+            const vPlus = stdSol[vPlusName] ? new Fraction(stdSol[vPlusName].str) : new Fraction(0);
+            const vMinus = stdSol[vMinusName] ? new Fraction(stdSol[vMinusName].str) : new Fraction(0);
+            valFrac = vPlus.sub(vMinus);
+        }
+        
+        originalSolution[`x${i}`] = {
+            val: valFrac.toFloat(),
+            str: valFrac.toString()
+        };
+    }
+    return originalSolution;
+}
+
+// Orchestrator for local math solving execution
+function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw, varSigns) {
+    const numVars = zCoeffsList.length;
+    if (!varSigns) {
+        varSigns = Array(numVars).fill('>=0');
+    }
+    
+    // Create mapping of original variables to standard variables
+    const varMapping = {};
+    for (let i = 1; i <= numVars; i++) {
+        const sign = varSigns[i - 1] || '>=0';
+        if (sign === '>=0') {
+            varMapping[`x${i}`] = [
+                { stdVar: `x${i}`, factor: 1 }
+            ];
+        } else if (sign === '<=0') {
+            varMapping[`x${i}`] = [
+                { stdVar: `x${i}'`, factor: -1 }
+            ];
+        } else if (sign === 'free') {
+            varMapping[`x${i}`] = [
+                { stdVar: `x${i}+`, factor: 1 },
+                { stdVar: `x${i}-`, factor: -1 }
+            ];
         }
     }
-    
-    const eqs = { z: [new Fraction(0), zCoeffs] };
+
+    // Build standard objective coefficients
+    const zCoeffs = {};
     const nonBasic = [];
     for (let i = 1; i <= numVars; i++) {
-        nonBasic.push(`x${i}`);
+        const val = zCoeffsList[i - 1];
+        let baseVal;
+        if (probType === 'max') {
+            baseVal = -val;
+        } else {
+            baseVal = val;
+        }
+        
+        const mapping = varMapping[`x${i}`];
+        for (const item of mapping) {
+            const stdVar = item.stdVar;
+            const factor = item.factor;
+            zCoeffs[stdVar] = (zCoeffs[stdVar] || new Fraction(0)).add(new Fraction(baseVal).mul(new Fraction(factor)));
+            if (!nonBasic.includes(stdVar)) {
+                nonBasic.push(stdVar);
+            }
+        }
     }
+    nonBasic.sort(varKeyCompare);
+
+    const eqs = { z: [new Fraction(0), zCoeffs] };
     const basic = [];
     const flatConstraints = [];
     constraintsRaw.forEach(item => {
@@ -890,12 +964,25 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw) {
 
     for (let i = 1; i <= flatConstraints.length; i++) {
         const item = flatConstraints[i - 1];
-        let coeffsList = item.coeffs.map(c => new Fraction(c));
         const sign = item.sign;
         let rhs = new Fraction(item.rhs);
         
+        const stdCoeffs = {};
+        for (let j = 1; j <= numVars; j++) {
+            const val = item.coeffs[j - 1];
+            if (val === 0) continue;
+            
+            const mapping = varMapping[`x${j}`];
+            for (const mapItem of mapping) {
+                const stdVar = mapItem.stdVar;
+                const factor = mapItem.factor;
+                stdCoeffs[stdVar] = (stdCoeffs[stdVar] || new Fraction(0)).add(new Fraction(val).mul(new Fraction(factor)));
+            }
+        }
+        
+        let factor = new Fraction(1);
         if (sign === '>=') {
-            coeffsList = coeffsList.map(c => c.neg());
+            factor = new Fraction(-1);
             rhs = rhs.neg();
         }
         
@@ -903,39 +990,40 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw) {
         basic.push(wName);
         
         const wCoeffs = {};
-        for (let j = 1; j <= coeffsList.length; j++) {
-            const val = coeffsList[j - 1];
-            if (val.toFloat() !== 0) {
-                wCoeffs[`x${j}`] = val.neg();
+        for (const [stdVar, val] of Object.entries(stdCoeffs)) {
+            const finalVal = val.mul(factor);
+            if (finalVal.toFloat() !== 0) {
+                wCoeffs[stdVar] = finalVal.neg();
             }
         }
         eqs[wName] = [rhs, wCoeffs];
     }
     
     const c_np = zCoeffsList.map(Number);
-    const A_np = [];
-    const b_np = [];
-    
-    for (const b of basic) {
-        const row = [];
-        for (let i = 1; i <= numVars; i++) {
-            row.push(-(eqs[b][1][`x${i}`] || new Fraction(0)).toFloat());
-        }
-        A_np.push(row);
-        b_np.push(eqs[b][0].toFloat());
-    }
     
     const results = {};
     results.dantzig = solveSimplexJS(eqs, basic, nonBasic, probType, "Dantzig");
     results.bland = solveSimplexJS(eqs, basic, nonBasic, probType, "Bland");
     results.two_phase = solve2PhaseSimplexJS(eqs, basic, nonBasic, probType, "Bland");
     
+    // Reconstruct original solutions
+    if (results.dantzig && results.dantzig.optimal_solution) {
+        results.dantzig.original_solution = reconstructOriginalSolution(results.dantzig.optimal_solution, varSigns, numVars);
+    }
+    if (results.bland && results.bland.optimal_solution) {
+        results.bland.original_solution = reconstructOriginalSolution(results.bland.optimal_solution, varSigns, numVars);
+    }
+    if (results.two_phase && results.two_phase.optimal_solution) {
+        results.two_phase.original_solution = reconstructOriginalSolution(results.two_phase.optimal_solution, varSigns, numVars);
+    }
+    
     // Reconstruct library SciPy output using exact 2-Phase outputs
     if (results.two_phase.status === 'optimal') {
         const solution = {};
+        const origSol = results.two_phase.original_solution;
         for (let i = 1; i <= numVars; i++) {
             const v = `x${i}`;
-            solution[v] = results.two_phase.optimal_solution[v].val;
+            solution[v] = origSol[v].val;
         }
         results.scipy = {
             success: true,
@@ -954,7 +1042,7 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw) {
     }
     
     if (numVars === 2) {
-        results.geometry = solveGeometryJS(probType, c_np, A_np, b_np, constraintsRaw);
+        results.geometry = solveGeometryJS(probType, c_np, null, null, constraintsRaw, varSigns);
     } else {
         results.geometry = null;
     }
@@ -1004,10 +1092,79 @@ const EXAMPLES = {
     }
 };
 
+// Dynamic variable sign rows management
+function updateVariableSignsUI() {
+    const z_coeffs_str = document.getElementById('z_coeffs').value.trim();
+    const listContainer = document.getElementById('var-signs-list');
+    const sectionContainer = document.getElementById('var-signs-section');
+    
+    if (!z_coeffs_str) {
+        sectionContainer.style.display = 'none';
+        return;
+    }
+    
+    const num_vars = z_coeffs_str.split(/\s+/).length;
+    if (num_vars === 0) {
+        sectionContainer.style.display = 'none';
+        return;
+    }
+    
+    sectionContainer.style.display = 'block';
+    
+    // Save existing selections to preserve them if possible
+    const existingSelections = {};
+    listContainer.querySelectorAll('.var-sign-select').forEach(sel => {
+        const idx = sel.getAttribute('data-var-index');
+        existingSelections[idx] = sel.value;
+    });
+    
+    listContainer.innerHTML = '';
+    for (let i = 1; i <= num_vars; i++) {
+        const row = document.createElement('div');
+        row.className = 'var-sign-row';
+        
+        const span = document.createElement('span');
+        span.innerHTML = `x<sub>${i}</sub>`;
+        
+        const select = document.createElement('select');
+        select.className = 'var-sign-select';
+        select.setAttribute('data-var-index', i);
+        
+        const optGTE = document.createElement('option');
+        optGTE.value = '>=0';
+        optGTE.innerHTML = `x<sub>${i}</sub> &ge; 0`;
+        
+        const optLTE = document.createElement('option');
+        optLTE.value = '<=0';
+        optLTE.innerHTML = `x<sub>${i}</sub> &le; 0`;
+        
+        const optFree = document.createElement('option');
+        optFree.value = 'free';
+        optFree.innerHTML = `x<sub>${i}</sub> tự do`;
+        
+        select.appendChild(optGTE);
+        select.appendChild(optLTE);
+        select.appendChild(optFree);
+        
+        // Restore value if existed
+        if (existingSelections[i]) {
+            select.value = existingSelections[i];
+        } else {
+            select.value = '>=0';
+        }
+        
+        row.appendChild(span);
+        row.appendChild(select);
+        listContainer.appendChild(row);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadExample('infeasible');
     document.getElementById('btn-add-constraint').addEventListener('click', () => addConstraintRow());
     document.getElementById('solver-form').addEventListener('submit', handleFormSubmit);
+    document.getElementById('z_coeffs').addEventListener('input', updateVariableSignsUI);
+    updateVariableSignsUI();
     switchTab('tab-geometry');
 });
 
@@ -1059,6 +1216,7 @@ function loadExample(key) {
     example.constraints.forEach(c => {
         addConstraintRow(c.coeffs, c.sign, c.rhs);
     });
+    updateVariableSignsUI();
 }
 
 // Tabs switching
@@ -1118,12 +1276,22 @@ function handleFormSubmit(e) {
     
     setTimeout(() => {
         try {
-            const results = solveAllMethodsJS(prob_type, z_coeffs, constraints);
+            const signSelects = document.querySelectorAll('.var-sign-select');
+            const sortedSelects = Array.from(signSelects).sort((a, b) => {
+                return Number(a.getAttribute('data-var-index')) - Number(b.getAttribute('data-var-index'));
+            });
+            const varSigns = sortedSelects.map(sel => sel.value);
+            while (varSigns.length < z_coeffs.length) {
+                varSigns.push('>=0');
+            }
+            
+            const results = solveAllMethodsJS(prob_type, z_coeffs, constraints, varSigns);
             const data = {
                 success: true,
                 results: results,
                 num_vars: z_coeffs.length,
-                prob_type: prob_type
+                prob_type: prob_type,
+                var_signs: varSigns
             };
             displayResults(data);
         } catch (err) {
@@ -1174,8 +1342,8 @@ function displayResults(data) {
         } else if (results.bland && results.bland.success) {
             status = "OPTIMAL";
             optimalVal = results.bland.optimal_value.toFixed(4);
-            optimalSol = Object.entries(results.bland.optimal_solution)
-                .filter(([k]) => k.startsWith('x'))
+            const origSol = results.bland.original_solution || reconstructOriginalSolution(results.bland.optimal_solution, data.var_signs, data.num_vars);
+            optimalSol = Object.entries(origSol)
                 .map(([k, v]) => `${k} = ${v.val.toFixed(4)}`)
                 .join(', ');
         } else if (results.bland && results.bland.status === 'unbounded') {
@@ -1294,6 +1462,23 @@ function displayResults(data) {
 }
 
 // Render Simplex Steps equations grid
+function formatVarHTML(name) {
+    if (name === 'z' || name === 'z_aux') return name;
+    if (name.startsWith('x') || name.startsWith('w')) {
+        const match = name.match(/^([xw])(\d+)(.*)$/);
+        if (match) {
+            const prefix = match[1];
+            const num = match[2];
+            const suffix = match[3];
+            let suffixHtml = suffix;
+            if (suffix === '+') suffixHtml = '<sup>+</sup>';
+            if (suffix === '-') suffixHtml = '<sup>&minus;</sup>';
+            return `${prefix}<sub>${num}</sub>${suffixHtml}`;
+        }
+    }
+    return name;
+}
+
 function renderSimplexSteps(container, result, probType) {
     container.innerHTML = '';
     
@@ -1355,7 +1540,7 @@ function renderSimplexSteps(container, result, probType) {
                 if (tIdx === 0 && eq.const_str === '0' && !isNegative) {
                     termSign = '';
                 }
-                termsHTML += `${termSign}<span class="eq-term-val">${coeffDisplay}</span><span class="eq-term-var ${varClass}">${term.var}</span>`;
+                termsHTML += `${termSign}<span class="eq-term-val">${coeffDisplay}</span><span class="eq-term-var ${varClass}">${formatVarHTML(term.var)}</span>`;
             });
             
             let constHTML = eq.const_str;
@@ -1364,7 +1549,7 @@ function renderSimplexSteps(container, result, probType) {
             }
             
             eqRow.innerHTML = `
-                <span class="eq-var ${isZ ? 'var-x' : 'var-w'}">${eq.var_name}</span>
+                <span class="eq-var ${isZ ? 'var-x' : 'var-w'}">${formatVarHTML(eq.var_name)}</span>
                 <span class="eq-equals">=</span>
                 <span class="eq-const">${constHTML}</span>
                 <div class="eq-terms">${termsHTML || '0'}</div>
@@ -1378,8 +1563,8 @@ function renderSimplexSteps(container, result, probType) {
             pivot.className = 'step-pivot-info';
             pivot.innerHTML = `
                 Chọn biến xoay:&nbsp;
-                Biến VÀO = <span class="pivot-var pivot-in">${step.entering}</span>,&nbsp;
-                Biến RA = <span class="pivot-var pivot-out">${step.leaving || 'Không có'}</span>
+                Biến VÀO = <span class="pivot-var pivot-in">${formatVarHTML(step.entering)}</span>,&nbsp;
+                Biến RA = <span class="pivot-var pivot-out">${step.leaving ? formatVarHTML(step.leaving) : 'Không có'}</span>
             `;
             stepCard.appendChild(pivot);
         }
@@ -1391,15 +1576,25 @@ function renderSimplexSteps(container, result, probType) {
     summary.style.borderTop = '3px solid var(--color-success)';
     
     if (result.success) {
+        const mappingSection = result.original_solution ? `
+            <p style="margin-top: 0.75rem;"><b>Nghiệm quy đổi sang ẩn gốc:</b></p>
+            <ul style="margin-top: 0.5rem; padding-left: 1.5rem; margin-bottom: 0.75rem;">
+                ${Object.entries(result.original_solution)
+                    .map(([k, v]) => `<li>${formatVarHTML(k)} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
+                    .join('')}
+            </ul>
+        ` : '';
+        
         summary.innerHTML = `
             <h3>KẾT QUẢ TỐI ƯU</h3>
             <p style="margin-top: 0.5rem;">Giá trị tối ưu <b>Z = ${result.optimal_value_str}</b></p>
-            <p style="margin-top: 0.5rem;"><b>Nghiệm tối ưu từ điển:</b></p>
+            <p style="margin-top: 0.5rem;"><b>Nghiệm tối ưu từ điển phụ:</b></p>
             <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
                 ${Object.entries(result.optimal_solution)
-                    .map(([k, v]) => `<li>${k} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
+                    .map(([k, v]) => `<li>${formatVarHTML(k)} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
                     .join('')}
             </ul>
+            ${mappingSection}
         `;
     } else {
         summary.innerHTML = `
