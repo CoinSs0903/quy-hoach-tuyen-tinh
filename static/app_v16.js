@@ -130,6 +130,24 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
     const basic = [...basicOrig];
     const nonBasic = [...nonBasicOrig];
     const initialFeasible = basic.every(b => eqs[b][0].toFloat() >= -1.0e-7);
+    if (!initialFeasible) {
+        const resTwoPhase = solve2PhaseSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method, varSigns, numVars);
+        const steps = [];
+        for (const step of resTwoPhase.phase1_steps) {
+            steps.push({
+                ...step,
+                iteration: `Pha 1 - Bước ${step.iteration}`
+            });
+        }
+        for (const step of resTwoPhase.phase2_steps) {
+            steps.push({
+                ...step,
+                iteration: `Pha 2 - Bước ${step.iteration}`
+            });
+        }
+        resTwoPhase.steps = steps;
+        return resTwoPhase;
+    }
     
     const steps = [];
     let iteration = 0;
