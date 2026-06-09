@@ -671,7 +671,15 @@ def solve_all_methods(prob_type, z_coeffs_list, constraints_raw):
     non_basic = [f'x{i}' for i in range(1, num_vars + 1)]
     basic = []
     
-    for i, item in enumerate(constraints_raw, 1):
+    flat_constraints = []
+    for item in constraints_raw:
+        if item['sign'] == '=':
+            flat_constraints.append({"coeffs": list(item['coeffs']), "sign": "<=", "rhs": item['rhs']})
+            flat_constraints.append({"coeffs": list(item['coeffs']), "sign": ">=", "rhs": item['rhs']})
+        else:
+            flat_constraints.append(item)
+            
+    for i, item in enumerate(flat_constraints, 1):
         coeffs_list = [Fraction(c) for c in item['coeffs']]
         sign = item['sign']
         rhs = Fraction(item['rhs'])
@@ -679,16 +687,6 @@ def solve_all_methods(prob_type, z_coeffs_list, constraints_raw):
         if sign == '>=':
             coeffs_list = [-c for c in coeffs_list]
             rhs = -rhs
-        elif sign == '=':
-            # Note: dictionary method in tonghop.py only handles <= and >= (by converting >= to <=)
-            # A true '=' constraint is challenging for simple dictionary simplex without artificial variables.
-            # We will follow the tonghop.py behavior: it reads parts and handles '>=' by negating,
-            # but doesn't handle '=' directly in dictionary simplex without custom code.
-            # Let's check how tonghop.py handles it:
-            # in tonghop.py: parts[1] is sign. If sign == '>=', it negates.
-            # If sign == '=', it keeps it. But wait, if sign is '=', w_i is still added.
-            # Let's follow this logic:
-            pass
             
         w_name = f'w{i}'
         basic.append(w_name)

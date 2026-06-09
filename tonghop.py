@@ -57,6 +57,7 @@ def parse_input():
     geo_constraints = []
     
     print("\nNhập các ràng buộc (Ví dụ: 2x1 + 2x2 <= 9 hoặc 1x1 + 3x2 >= 5)")
+    flat_constraints_data = []
     for i in range(1, num_constraints + 1):
         line = input(f"Ràng buộc {i}: ").strip()
         parts = re.split(r'\s*(<=|>=|=)\s*', line)
@@ -66,6 +67,21 @@ def parse_input():
         rhs = Fraction(parts[2])
         
         geo_constraints.append({'coeffs': coeffs_list, 'sign': sign, 'rhs': rhs})
+        
+        if sign == '=':
+            flat_constraints_data.append({'coeffs': coeffs_list, 'sign': '<=', 'rhs': rhs})
+            flat_constraints_data.append({'coeffs': coeffs_list, 'sign': '>=', 'rhs': rhs})
+        else:
+            flat_constraints_data.append({'coeffs': coeffs_list, 'sign': sign, 'rhs': rhs})
+            
+    eqs = {'z': (Fraction(0), z_coeffs)}
+    non_basic = [f'x{i}' for i in range(1, num_vars + 1)]
+    basic = []
+    
+    for i, constr in enumerate(flat_constraints_data, 1):
+        coeffs_list = constr['coeffs']
+        sign = constr['sign']
+        rhs = constr['rhs']
         
         if sign == '>=':
             coeffs_list = [-c for c in coeffs_list]

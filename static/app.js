@@ -878,9 +878,18 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw) {
         nonBasic.push(`x${i}`);
     }
     const basic = [];
-    
-    for (let i = 1; i <= constraintsRaw.length; i++) {
-        const item = constraintsRaw[i - 1];
+    const flatConstraints = [];
+    constraintsRaw.forEach(item => {
+        if (item.sign === '=') {
+            flatConstraints.push({ coeffs: [...item.coeffs], sign: '<=', rhs: item.rhs });
+            flatConstraints.push({ coeffs: [...item.coeffs], sign: '>=', rhs: item.rhs });
+        } else {
+            flatConstraints.push(item);
+        }
+    });
+
+    for (let i = 1; i <= flatConstraints.length; i++) {
+        const item = flatConstraints[i - 1];
         let coeffsList = item.coeffs.map(c => new Fraction(c));
         const sign = item.sign;
         let rhs = new Fraction(item.rhs);
@@ -1160,6 +1169,8 @@ function displayResults(data) {
             optimalSol = Object.entries(results.scipy.solution)
                 .map(([k, v]) => `${k} = ${v.toFixed(4)}`)
                 .join(', ');
+        } else if (results.two_phase && results.two_phase.status === 'unbounded') {
+            status = "UNBOUNDED";
         } else if (results.bland && results.bland.success) {
             status = "OPTIMAL";
             optimalVal = results.bland.optimal_value.toFixed(4);
