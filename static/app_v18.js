@@ -227,7 +227,7 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
                 success: false,
                 status: "unbounded",
                 initial_feasible: initialFeasible,
-                message: "Bài toán không giới nội! Z -> vô cùng",
+                message: "Bài toán không giới nội! Z -> ∞",
                 steps: steps
             };
         }
@@ -1951,7 +1951,7 @@ function renderSimplexSteps(container, result, probType, allResults = null) {
         }
     } else if (result.status === 'unbounded') {
         summary.style.borderTop = '3px solid var(--color-danger)';
-        const zLimit = probType === 'max' ? "+&infin; (+Vô cùng)" : "-&infin; (-Vô cùng)";
+        const zLimit = probType === 'max' ? "+&infin;" : "-&infin;";
         const zLabel = probType === 'max' ? "Z (max)" : "Z (min)";
         summary.innerHTML = `
             <h3>KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (UNBOUNDED)</h3>
