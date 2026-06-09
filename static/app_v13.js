@@ -1564,7 +1564,7 @@ function displayResults(data) {
     
     if (isGeometryAvailable) {
         status = results.geometry.status;
-        if (results.geometry.best_z !== null) {
+        if (results.geometry.best_z !== null && status !== 'UNBOUNDED' && status !== 'INFEASIBLE') {
             optimalVal = results.geometry.best_z.toFixed(4);
             if (status === 'MULTIPLE_OPTIMAL' && results.geometry.p1 && results.geometry.p2) {
                 const p1 = results.geometry.p1;
