@@ -296,11 +296,12 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
         };
     }
     
+    const hasNegativeBasic = basic.some(b => eqs[b][0].toFloat() < -1.0e-7);
     return {
-        success: true,
-        status: "optimal",
+        success: !hasNegativeBasic,
+        status: hasNegativeBasic ? "infeasible" : "optimal",
         initial_feasible: initialFeasible,
-        message: "Đã tìm thấy nghiệm tối ưu!",
+        message: hasNegativeBasic ? "Từ điển tối ưu không khả thi do có biến cơ sở âm." : "Đã tìm thấy nghiệm tối ưu!",
         steps: steps,
         optimal_value: optVal,
         optimal_value_str: optValStr,
@@ -1715,9 +1716,13 @@ function renderSimplexSteps(container, result, probType) {
     
     const summary = document.createElement('div');
     summary.className = 'step-card';
-    summary.style.borderTop = '3px solid var(--color-success)';
     
-    if (result.success) {
+    const hasNegativeBasic = Object.entries(result.optimal_solution || {}).some(([k, v]) => v.val < -1.0e-7);
+    
+    if (result.status === 'optimal' && !hasNegativeBasic) {
+        summary.style.borderTop = '3px solid var(--color-success)';
+        
+        const zLabel = probType === 'max' ? "cực đại Z (max)" : "cực tiểu Z (min)";
         const mappingSection = result.original_solution ? `
             <p style="margin-top: 0.75rem;"><b>Nghiệm quy đổi sang ẩn gốc:</b></p>
             <ul style="margin-top: 0.5rem; padding-left: 1.5rem; margin-bottom: 0.75rem;">
@@ -1728,9 +1733,9 @@ function renderSimplexSteps(container, result, probType) {
         ` : '';
         
         summary.innerHTML = `
-            <h3>KẾT QUẢ TỐI ƯU</h3>
-            <p style="margin-top: 0.5rem;">Giá trị tối ưu <b>Z = ${result.optimal_value_str}</b></p>
-            <p style="margin-top: 0.5rem;"><b>Nghiệm tối ưu từ điển phụ:</b></p>
+            <h3>KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU</h3>
+            <p style="margin-top: 0.5rem;">Giá trị ${zLabel} = <b>${result.optimal_value_str}</b></p>
+            <p style="margin-top: 0.5rem;"><b>Nghiệm tối ưu từ điển:</b></p>
             <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
                 ${Object.entries(result.optimal_solution)
                     .map(([k, v]) => `<li>${formatVarHTML(k)} = <span class="var-x">${v.str}</span> (${v.val.toFixed(4)})</li>`)
@@ -1738,7 +1743,35 @@ function renderSimplexSteps(container, result, probType) {
             </ul>
             ${mappingSection}
         `;
+    } else if (result.status === 'unbounded') {
+        summary.style.borderTop = '3px solid var(--color-danger)';
+        const zLimit = probType === 'max' ? "+&infin; (+Vô cùng)" : "-&infin; (-Vô cùng)";
+        const zLabel = probType === 'max' ? "Z (max)" : "Z (min)";
+        summary.innerHTML = `
+            <h3>KẾT LUẬN: BÀI TOÁN KHÔNG GIỚI NỘI (UNBOUNDED)</h3>
+            <p style="margin-top: 0.5rem; color: var(--color-danger);">
+                Hàm mục tiêu <b>${zLabel} &rarr; ${zLimit}</b>
+            </p>
+            <p style="margin-top: 0.5rem;">Bài toán không có nghiệm tối ưu hữu hạn.</p>
+        `;
+    } else if (result.status === 'infeasible' || hasNegativeBasic) {
+        summary.style.borderTop = '3px solid var(--color-danger)';
+        const zLabel = probType === 'max' ? "Z (max)" : "Z (min)";
+        let detailMsg = result.message;
+        if (hasNegativeBasic) {
+            const negVars = Object.entries(result.optimal_solution)
+                .filter(([k, v]) => v.val < -1.0e-7)
+                .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
+                .join(', ');
+            detailMsg = `Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm (${negVars}). Vui lòng tham khảo phương pháp 2 Pha.`;
+        }
+        summary.innerHTML = `
+            <h3>KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE)</h3>
+            <p style="margin-top: 0.5rem; color: var(--color-danger);">${detailMsg}</p>
+            <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>${zLabel}</b> không có giá trị tối ưu khả thi.</p>
+        `;
     } else {
+        summary.style.borderTop = '3px solid var(--color-warning)';
         summary.innerHTML = `
             <h3>KẾT THÚC GIẢI THUẬT</h3>
             <p style="margin-top: 0.5rem; color: var(--color-danger);">${result.message}</p>
