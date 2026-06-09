@@ -1641,7 +1641,7 @@ function displayResults(data) {
     } else {
         summaryBadge.classList.add("badge-infeasible");
         summaryBadge.textContent = "Vô nghiệm (Infeasible)";
-        summaryZ.textContent = "Không khả thi";
+        summaryZ.textContent = data.prob_type === 'max' ? "âm vô cùng" : "dương vô cùng";
         summaryX.textContent = "Không có miền chấp nhận";
     }
     
@@ -1721,7 +1721,13 @@ function displayResults(data) {
             scipyOpt.textContent = results.scipy.optimal_value.toFixed(6);
         } else {
             scipySol.textContent = "Không tìm thấy nghiệm tối ưu.";
-            scipyOpt.textContent = "-";
+            if (results.scipy.status === "infeasible" || (results.two_phase && results.two_phase.status === 'infeasible')) {
+                scipyOpt.textContent = data.prob_type === 'max' ? "âm vô cùng" : "dương vô cùng";
+            } else if (results.scipy.status === "unbounded") {
+                scipyOpt.textContent = data.prob_type === 'max' ? "dương vô cùng" : "âm vô cùng";
+            } else {
+                scipyOpt.textContent = "-";
+            }
         }
     }
     
@@ -1950,7 +1956,7 @@ function renderSimplexSteps(container, result, probType) {
         summary.innerHTML = `
             <h3>KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE)</h3>
             <p style="margin-top: 0.5rem; color: var(--color-danger);">${detailMsg}</p>
-            <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>${zLabel}</b> không có giá trị tối ưu khả thi.</p>
+            <p style="margin-top: 0.5rem;">Hàm mục tiêu <b>${zLabel} = ${probType === 'max' ? "âm vô cùng" : "dương vô cùng"}</b></p>
         `;
     } else {
         summary.style.borderTop = '3px solid var(--color-warning)';

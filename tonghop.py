@@ -405,6 +405,9 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
         neg_vars = ", ".join(f"{b} = {eqs[b][0]}" for b in sorted(basic, key=var_key) if eqs[b][0] < 0)
         print(f"Từ điển tối ưu nhưng không khả thi do chứa các biến cơ sở âm ({neg_vars}).")
         print("Vui lòng tham khảo phương pháp 2 Pha.")
+        opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+        opt_val_disp = "âm vô cùng" if prob_type == 'max' else "dương vô cùng"
+        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
         print(f"{'='*60}")
         return
 
@@ -497,6 +500,9 @@ def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type, var_signs=None):
     else:
         print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (INFEASIBLE) {'='*20}")
         print(f"Không tìm thấy nghiệm tối ưu. Lý do: {res.message}")
+        opt_label = "Z (max)" if prob_type == 'max' else "Z (min)"
+        opt_val_disp = "âm vô cùng" if prob_type == 'max' else "dương vô cùng"
+        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
         print(f"{'='*60}")
 
 def check_feasibility(pt, constraints, tol=1e-7):
@@ -603,6 +609,9 @@ def solve_geometry(opt_type, c, geo_constraints, var_signs=None):
     if len(feasible_pts) == 0:
         status = 'INFEASIBLE'
         print("KẾT LUẬN: BÀI TOÁN VÔ NGHIỆM (Infeasible)")
+        opt_label = "Z (max)" if opt_type.upper() == 'MAX' else "Z (min)"
+        opt_val_disp = "âm vô cùng" if opt_type.upper() == 'MAX' else "dương vô cùng"
+        print(f"Hàm mục tiêu {opt_label} = {opt_val_disp}")
         draw_pts = raw_intersections 
     else:
         feasible_pts = sort_clockwise(feasible_pts)
