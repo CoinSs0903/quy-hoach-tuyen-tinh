@@ -1364,6 +1364,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-add-constraint').addEventListener('click', () => addConstraintRow(numVars));
     document.getElementById('solver-form').addEventListener('submit', handleFormSubmit);
     switchTab('tab-geometry');
+    
+    // Auto run solver on page load to directly show results without welcome screen
+    setTimeout(() => {
+        const form = document.getElementById('solver-form');
+        if (form) {
+            const event = new Event('submit', { cancelable: true });
+            form.dispatchEvent(event);
+        }
+    }, 150);
 });
 
 // Dynamic constraint rows management
@@ -1507,7 +1516,8 @@ function switchTab(tabId) {
 function handleFormSubmit(e) {
     e.preventDefault();
     
-    document.getElementById('welcome-screen').classList.add('hidden');
+    const welcome = document.getElementById('welcome-screen');
+    if (welcome) welcome.classList.add('hidden');
     document.getElementById('results-panel').classList.add('hidden');
     document.getElementById('solve-loader').classList.remove('hidden');
     
@@ -1561,7 +1571,8 @@ function handleFormSubmit(e) {
 
 function hideLoader() {
     document.getElementById('solve-loader').classList.add('hidden');
-    document.getElementById('welcome-screen').classList.remove('hidden');
+    const welcome = document.getElementById('welcome-screen');
+    if (welcome) welcome.classList.remove('hidden');
 }
 
 // Render Results on UI panels
