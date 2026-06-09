@@ -7,7 +7,6 @@ import numpy as np
 from scipy.optimize import linprog
 
 
-
 def var_key(v):
     return (0 if v.startswith('x') else 1, int(v[1:]))
 
@@ -55,7 +54,9 @@ def parse_input():
     non_basic = [f'x{i}' for i in range(1, num_vars + 1)]
     basic = []
     
-    print("\nNhập các ràng buộc (Ví dụ: 2x1 + 2x2 <= 9 nhập là: 2 2 <= 9)")
+    geo_constraints = []
+    
+    print("\nNhập các ràng buộc (Ví dụ: 2x1 + 2x2 <= 9 hoặc 1x1 + 3x2 >= 5)")
     for i in range(1, num_constraints + 1):
         line = input(f"Ràng buộc {i}: ").strip()
         parts = re.split(r'\s*(<=|>=|=)\s*', line)
@@ -64,10 +65,12 @@ def parse_input():
         sign = parts[1]
         rhs = Fraction(parts[2])
         
+        geo_constraints.append({'coeffs': coeffs_list, 'sign': sign, 'rhs': rhs})
+        
         if sign == '>=':
             coeffs_list = [-c for c in coeffs_list]
             rhs = -rhs
-        
+            
         w_name = f'w{i}'
         basic.append(w_name)
         
@@ -78,10 +81,72 @@ def parse_input():
                 
         eqs[w_name] = (rhs, w_coeffs)
         
-    return eqs, basic, non_basic, prob_type, num_vars, num_constraints
+    return eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints
 
+def display_standard_form(geo_constraints, eqs, num_vars, prob_type):
+    """Hàm in ra Dạng Chuẩn của bài toán trước khi giải"""
+    print(f"\n{'-'*60}")
+    print("BƯỚC CHUẨN HÓA: ĐƯA BÀI TOÁN VỀ DẠNG CHUẨN (STANDARD FORM)")
+    print(f"{'-'*60}")
+    
+    # Hàm mục tiêu
+    z_str = ""
+    for i in range(1, num_vars + 1):
+        val = eqs['z'][1].get(f'x{i}', Fraction(0))
+        val = -val if prob_type == 'max' else val
+        if val == 0: continue
+        sign = "+" if val > 0 and z_str != "" else ("-" if val < 0 else "")
+        abs_val = abs(val)
+        val_str = "" if abs_val == 1 else str(abs_val)
+        z_str += f" {sign} {val_str}x{i}"
+    
+    z_str = z_str.strip() if z_str else "0"
+    print(f"Hàm mục tiêu: Z = {z_str} -> {prob_type.upper()}")
+    print("Các ràng buộc (đã thêm biến bù/thặng dư):")
+    
+    # Ràng buộc
+    var_index = num_vars + 1
+    all_vars = [f"x{i}" for i in range(1, num_vars + 1)]
+    
+    for idx, constr in enumerate(geo_constraints, 1):
+        eq_str = ""
+        coeffs = constr['coeffs']
+        sign = constr['sign']
+        rhs = constr['rhs']
+        
+        # Đảm bảo vế phải >= 0
+        if rhs < 0:
+            coeffs = [-c for c in coeffs]
+            rhs = -rhs
+            if sign == '<=': sign = '>='
+            elif sign == '>=': sign = '<='
+            
+        for i, val in enumerate(coeffs, 1):
+            if val == 0: continue
+            op = "+" if val > 0 and eq_str != "" else ("-" if val < 0 else "")
+            abs_val = abs(val)
+            val_str = "" if abs_val == 1 else str(abs_val)
+            eq_str += f" {op} {val_str}x{i}"
+            
+        eq_str = eq_str.strip()
+        
+        if sign == '<=':
+            new_var = f"x{var_index}"
+            eq_str += f" + {new_var}"
+            all_vars.append(new_var)
+            var_index += 1
+        elif sign == '>=':
+            new_var = f"x{var_index}"
+            eq_str += f" - {new_var}"
+            all_vars.append(new_var)
+            var_index += 1
+            
+        print(f"  ({idx}) {eq_str} = {rhs}")
+        
+    print(f"Điều kiện không âm: {', '.join(all_vars)} >= 0")
+    print(f"{'-'*60}")
 
-def convert_data_for_other_methods(eqs, num_vars, prob_type):
+def convert_data_for_other_methods(geo_constraints, num_vars, prob_type, eqs):
     z_tuple = eqs['z'][1]
     c_list = []
     for i in range(1, num_vars + 1):
@@ -93,15 +158,24 @@ def convert_data_for_other_methods(eqs, num_vars, prob_type):
             
     A_ub = []
     b_ub = []
-    for k, (rhs, coeffs) in eqs.items():
-        if k == 'z': continue
-        row = []
-        for i in range(1, num_vars + 1):
-            row.append(float(-coeffs.get(f'x{i}', Fraction(0))))
-        A_ub.append(row)
-        b_ub.append(float(rhs))
+    A_eq = []
+    b_eq = []
+    
+    for constr in geo_constraints:
+        row = [float(c) for c in constr['coeffs']]
+        rhs_val = float(constr['rhs'])
         
-    return np.array(c_list), np.array(A_ub), np.array(b_ub)
+        if constr['sign'] == '<=':
+            A_ub.append(row)
+            b_ub.append(rhs_val)
+        elif constr['sign'] == '>=':
+            A_ub.append([-c for c in row])
+            b_ub.append(-rhs_val)
+        elif constr['sign'] == '=':
+            A_eq.append(row)
+            b_eq.append(rhs_val)
+            
+    return np.array(c_list), np.array(A_ub) if A_ub else None, np.array(b_ub) if b_ub else None, np.array(A_eq) if A_eq else None, np.array(b_eq) if b_eq else None
 
 
 def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland"):
@@ -112,6 +186,7 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
     
     print(f"\n{'='*60}")
     print(f"PHƯƠNG PHÁP: TỪ ĐIỂN ĐƠN HÌNH - {method.upper()} ({prob_type.upper()})")
+    print(f"Lưu ý: Từ điển giả định điểm xuất phát cơ sở x=0 khả thi.")
     print(f"{'='*60}")
     
     iteration = 0
@@ -214,7 +289,7 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
             print(f"  {v} = {val}")
 
 
-def solve_scipy_2phase(c, A, B, prob_type):
+def solve_scipy_2phase(c, A_ub, b_ub, A_eq, b_eq, prob_type):
     print(f"\n{'='*60}")
     print(f"PHƯƠNG PHÁP: 2 PHA (SỬ DỤNG SCIPY OPTIMIZE - HIGHS)")
     print(f"{'='*60}")
@@ -223,7 +298,7 @@ def solve_scipy_2phase(c, A, B, prob_type):
     x_bounds = (0, None)
     bounds = [x_bounds] * len(c)
     
-    res = linprog(c_input, A_ub=A, b_ub=B, bounds=bounds, method='highs')
+    res = linprog(c_input, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
     
     if res.success:
         print(f"Trạng thái thành công: {res.message}")
@@ -278,18 +353,18 @@ def get_anchor_point(a1, a2, b_val, x_lim, y_lim):
     elif len(unique_pts) == 1: return unique_pts[0]
     else: return (0, b_val/a2) if abs(a2) > 1e-7 else (b_val/a1, 0)
 
-def solve_geometry(opt_type, c, A_ub, b_ub):
+def solve_geometry(opt_type, c, geo_constraints):
     print(f"\n{'='*60}")
     print(f"PHƯƠNG PHÁP: HÌNH HỌC TRỰỢT HÀM MỤC TIÊU (2 ẨN)")
     print(f"{'='*60}")
     
     opt_type = opt_type.upper()
     constraints = []
-    for i in range(len(A_ub)):
-        constraints.append({'a': A_ub[i], 'sign': '<=', 'b': b_ub[i]})
-    # Thêm điều kiện không âm x1, x2 >= 0
-    constraints.append({'a': np.array([-1.0, 0.0]), 'sign': '<=', 'b': 0.0})
-    constraints.append({'a': np.array([0.0, -1.0]), 'sign': '<=', 'b': 0.0})
+    for gc in geo_constraints:
+        constraints.append({'a': np.array([float(gc['coeffs'][0]), float(gc['coeffs'][1])]), 'sign': gc['sign'], 'b': float(gc['rhs'])})
+    
+    constraints.append({'a': np.array([1.0, 0.0]), 'sign': '>=', 'b': 0.0})
+    constraints.append({'a': np.array([0.0, 1.0]), 'sign': '>=', 'b': 0.0})
     
     M = 10000 
     calc_constraints = constraints.copy()
@@ -300,8 +375,6 @@ def solve_geometry(opt_type, c, A_ub, b_ub):
         {'a': np.array([0, -1]), 'sign': '<=', 'b': M}
     ])
     
-    A_lines = [c_item['a'] for c_item in calc_constraints]
-    b_lines = [c_item['b'] for c_item in calc_constraints]
     intersections = []
     raw_intersections = []
     
@@ -310,10 +383,10 @@ def solve_geometry(opt_type, c, A_ub, b_ub):
             pt = np.linalg.solve([constraints[i]['a'], constraints[j]['a']], [constraints[i]['b'], constraints[j]['b']])
             raw_intersections.append(pt)
         except np.linalg.LinAlgError: pass
-
-    for i, j in combinations(range(len(A_lines)), 2):
+            
+    for i, j in combinations(range(len(calc_constraints)), 2):
         try:
-            pt = np.linalg.solve([A_lines[i], A_lines[j]], [b_lines[i], b_lines[j]])
+            pt = np.linalg.solve([calc_constraints[i]['a'], calc_constraints[j]['a']], [calc_constraints[i]['b'], calc_constraints[j]['b']])
             intersections.append(pt)
         except np.linalg.LinAlgError: pass
             
@@ -382,7 +455,7 @@ def solve_geometry(opt_type, c, A_ub, b_ub):
     arrow_len = (x_max - x_min + 2*margin_x) * 0.08 
 
     for idx, constr in enumerate(constraints):
-        a1, a2, b_val, sign = constr['a'][0], constr['a'][1], constr['b'], constr['sign']
+        a1, a2, b_val = constr['a'][0], constr['a'][1], constr['b']
         if abs(a2) > 1e-7:
             x_vals = np.array(x_lim_draw)
             ax.plot(x_vals, (b_val - a1 * x_vals) / a2, color='black', lw=1.5, alpha=0.6)
@@ -433,13 +506,10 @@ def solve_geometry(opt_type, c, A_ub, b_ub):
     plt.show()
 
 
-
 def main():
     try:
-       
-        eqs, basic, non_basic, prob_type, num_vars, num_constraints = parse_input()
-        
-        c_np, A_np, b_np = convert_data_for_other_methods(eqs, num_vars, prob_type)
+        eqs, basic, non_basic, prob_type, num_vars, num_constraints, geo_constraints = parse_input()
+        c_np, A_ub, b_ub, A_eq, b_eq = convert_data_for_other_methods(geo_constraints, num_vars, prob_type, eqs)
         
         while True:
             print("\n" + "="*45)
@@ -454,24 +524,28 @@ def main():
             
             choice = input("Chọn cách giải của bạn (1->6): ").strip()
             
+            if choice in ['1', '2', '3', '5']:
+                # Hiển thị dạng chuẩn trước khi giải các thuật toán đại số
+                display_standard_form(geo_constraints, eqs, num_vars, prob_type)
+            
             if choice == '1':
                 solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh")
             elif choice == '2':
                 solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland")
             elif choice == '3':
-                solve_scipy_2phase(c_np, A_np, b_np, prob_type)
+                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type)
             elif choice == '4':
                 if num_vars != 2:
                     print(f"\n[Lỗi] Phương pháp hình học chỉ áp dụng cho bài toán có 2 ẩn số. Bài toán hiện tại có {num_vars} ẩn.")
                 else:
-                    solve_geometry(prob_type, c_np, A_np, b_np)
+                    solve_geometry(prob_type, c_np, geo_constraints)
             elif choice == '5':
                 print("\n>>> BẮT ĐẦU CHẠY THỬ NGHIỆM ĐỒNG THỜI 4 PHƯƠNG PHÁP <<<")
                 solve_dictionary(eqs, basic, non_basic, prob_type, method="Don hinh")
                 solve_dictionary(eqs, basic, non_basic, prob_type, method="Bland")
-                solve_scipy_2phase(c_np, A_np, b_np, prob_type)
+                solve_scipy_2phase(c_np, A_ub, b_ub, A_eq, b_eq, prob_type)
                 if num_vars == 2:
-                    solve_geometry(prob_type, c_np, A_np, b_np)
+                    solve_geometry(prob_type, c_np, geo_constraints)
                 else:
                     print(f"\n[Bỏ qua hình học] Số biến = {num_vars} (!= 2)")
             elif choice == '6':
