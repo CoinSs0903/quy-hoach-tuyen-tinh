@@ -242,6 +242,61 @@ def reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars)
         original_solution[f'x{i}'] = val
     return original_solution
 
+def check_multiple_optimal_py(eqs, basic, non_basic, var_signs, num_vars):
+    if not var_signs or not num_vars:
+        return None
+    z_coeffs = eqs['z'][1]
+    candidates = []
+    for v in non_basic:
+        if z_coeffs.get(v, Fraction(0)) == 0:
+            candidates.append(v)
+            
+    if not candidates:
+        return None
+        
+    for entering in candidates:
+        leaving = None
+        min_ratio = float('inf')
+        for b in basic:
+            coeff = eqs[b][1].get(entering, Fraction(0))
+            if coeff < 0:
+                ratio = eqs[b][0] / abs(coeff)
+                if ratio < min_ratio:
+                    min_ratio = ratio
+                    leaving = b
+                elif ratio == min_ratio and leaving is not None:
+                    if var_key(b) < var_key(leaving):
+                        leaving = b
+                        
+        if leaving is not None:
+            p = eqs[leaving][1][entering]
+            entering_val = eqs[leaving][0] / -p
+            
+            new_vals = {}
+            new_vals[entering] = entering_val
+            new_vals[leaving] = Fraction(0)
+            
+            for b in basic:
+                if b != leaving:
+                    coeff_ent = eqs[b][1].get(entering, Fraction(0))
+                    new_vals[b] = eqs[b][0] + coeff_ent * entering_val
+            for nb in non_basic:
+                if nb != entering:
+                    new_vals[nb] = Fraction(0)
+                    
+            sol2 = {}
+            for i in range(1, num_vars + 1):
+                sign = var_signs[i - 1]
+                if sign == '>=0':
+                    val = new_vals.get(f'x{i}', Fraction(0))
+                elif sign == '<=0':
+                    val = -new_vals.get(f"x{i}'", Fraction(0))
+                elif sign == 'free':
+                    val = new_vals.get(f'x{i}+', Fraction(0)) - new_vals.get(f'x{i}-', Fraction(0))
+                sol2[f'x{i}'] = val
+            return sol2
+    return None
+
 def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bland", var_signs=None, num_vars=None):
     import copy
     eqs = copy.deepcopy(eqs_orig)
@@ -353,20 +408,49 @@ def solve_dictionary(eqs_orig, basic_orig, non_basic_orig, prob_type, method="Bl
         print(f"{'='*60}")
         return
 
-    print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU ({method.upper()}) {'='*20}")
-    z_value = eqs['z'][0]
-    if prob_type == 'max':
-        opt_val = -z_value
-        print(f"Giá trị cực đại Z (max) = {opt_val}")
-    else:
-        opt_val = z_value
-        print(f"Giá trị cực tiểu Z (min) = {opt_val}")
-    
+    # Check for multiple optimal solutions
+    orig_sol2 = None
     if var_signs and num_vars:
-        orig_sol = reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars)
+        orig_sol1 = reconstruct_original_solution_py(eqs, basic, non_basic, var_signs, num_vars)
+        orig_sol2 = check_multiple_optimal_py(eqs, basic, non_basic, var_signs, num_vars)
+        
+        # Double check if they are actually different
+        if orig_sol2:
+            diff = False
+            for i in range(1, num_vars + 1):
+                if orig_sol1[f'x{i}'] != orig_sol2[f'x{i}']:
+                    diff = True
+                    break
+            if not diff:
+                orig_sol2 = None
+
+    z_value = eqs['z'][0]
+    opt_label = "cực đại Z (max)" if prob_type == 'max' else "cực tiểu Z (min)"
+    opt_val_disp = -z_value if prob_type == 'max' else z_value
+
+    if orig_sol2 is not None:
+        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN VÔ SỐ NGHIỆM ({method.upper()}) {'='*20}")
+        print(f"Giá trị tối ưu {opt_label} = {opt_val_disp}")
         var_names = ", ".join(f"x{i}" for i in range(1, num_vars + 1))
-        var_vals = ", ".join(str(orig_sol[f'x{i}']) for i in range(1, num_vars + 1))
-        print(f"Nghiệm tối ưu: x* = ({var_names}) = ({var_vals})")
+        var_vals1 = ", ".join(str(orig_sol1[f'x{i}']) for i in range(1, num_vars + 1))
+        var_vals2 = ", ".join(str(orig_sol2[f'x{i}']) for i in range(1, num_vars + 1))
+        print(f"Nghiệm cực biên tối ưu thứ nhất: X1 = ({var_names}) = ({var_vals1})")
+        print(f"Nghiệm cực biên tối ưu thứ hai: X2 = ({var_names}) = ({var_vals2})")
+        print("Nghiệm tổng quát của bài toán (với 0 <= λ <= 1):")
+        for i in range(1, num_vars + 1):
+            val1 = orig_sol1[f'x{i}']
+            val2 = orig_sol2[f'x{i}']
+            if val1 == val2:
+                print(f"  x{i} = {val1}")
+            else:
+                print(f"  x{i} = {val1} * λ + {val2} * (1 - λ)")
+    else:
+        print(f"\n{'='*20} KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU ({method.upper()}) {'='*20}")
+        print(f"Giá trị {opt_label} = {opt_val_disp}")
+        if var_signs and num_vars:
+            var_names = ", ".join(f"x{i}" for i in range(1, num_vars + 1))
+            var_vals = ", ".join(str(orig_sol1[f'x{i}']) for i in range(1, num_vars + 1))
+            print(f"Nghiệm tối ưu: x* = ({var_names}) = ({var_vals})")
         
     all_vars = sorted(list(set(basic + non_basic)), key=var_key)
     dict_vals = []

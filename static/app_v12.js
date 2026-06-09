@@ -117,7 +117,7 @@ function getEqStructure(name, constVal, coeffs, nonBasic) {
 }
 
 // Standard dictionary simplex solver in Javascript
-function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bland") {
+function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bland", varSigns = null, numVars = null) {
     const eqs = {};
     for (const [k, v] of Object.entries(eqsOrig)) {
         const coeffs = {};
@@ -297,6 +297,26 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
     }
     
     const hasNegativeBasic = basic.some(b => eqs[b][0].toFloat() < -1.0e-7);
+    
+    // Check multiple optimal
+    let secondSolution = null;
+    if (!hasNegativeBasic && varSigns && numVars) {
+        const sol2 = checkMultipleOptimalJS(eqs, basic, nonBasic, varSigns, numVars);
+        if (sol2) {
+            const sol1 = reconstructOriginalSolution(optimalSolution, varSigns, numVars);
+            let diff = false;
+            for (let i = 1; i <= numVars; i++) {
+                if (Math.abs(sol1[`x${i}`].val - sol2[`x${i}`].val) > 1.0e-7) {
+                    diff = true;
+                    break;
+                }
+            }
+            if (diff) {
+                secondSolution = sol2;
+            }
+        }
+    }
+
     return {
         success: !hasNegativeBasic,
         status: hasNegativeBasic ? "infeasible" : "optimal",
@@ -305,7 +325,8 @@ function solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bl
         steps: steps,
         optimal_value: optVal,
         optimal_value_str: optValStr,
-        optimal_solution: optimalSolution
+        optimal_solution: optimalSolution,
+        multiple_optimal_solution: secondSolution
     };
 }
 
@@ -332,11 +353,11 @@ function reconstructObjectiveJS(eqs, basic, nonBasic, zOrig) {
 }
 
 // 2-Phase Simplex dictionary solver in Javascript
-function solve2PhaseSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bland") {
+function solve2PhaseSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method = "Bland", varSigns = null, numVars = null) {
     const initialFeasible = basicOrig.every(b => eqsOrig[b][0].toFloat() >= -1.0e-7);
     
     if (initialFeasible) {
-        const res = solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method);
+        const res = solveSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method, varSigns, numVars);
         return {
             success: res.success,
             status: res.status,
@@ -605,7 +626,7 @@ function solve2PhaseSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method
     eqs['z'] = [c_z, coeffs_z];
     
     // Run Phase 2
-    const res2 = solveSimplexJS(eqs, basic, nonBasic, probType, method);
+    const res2 = solveSimplexJS(eqs, basic, nonBasic, probType, method, varSigns, numVars);
     
     return {
         success: res2.success,
@@ -616,7 +637,8 @@ function solve2PhaseSimplexJS(eqsOrig, basicOrig, nonBasicOrig, probType, method
         phase2_steps: res2.steps,
         optimal_value: res2.optimal_value,
         optimal_value_str: res2.optimal_value_str,
-        optimal_solution: res2.optimal_solution
+        optimal_solution: res2.optimal_solution,
+        multiple_optimal_solution: res2.multiple_optimal_solution
     };
 }
 
@@ -869,6 +891,80 @@ function solveGeometryJS(optType, c, A_ub, b_ub, originalConstraintsRaw, varSign
     return result;
 }
 
+// Check if multiple optimal solutions exist by performing a virtual pivot
+function checkMultipleOptimalJS(eqs, basic, nonBasic, varSigns, numVars) {
+    if (!varSigns || !numVars) return null;
+    const zCoeffs = eqs['z'][1];
+    const candidates = [];
+    for (const v of nonBasic) {
+        const val = zCoeffs[v] || new Fraction(0);
+        if (Math.abs(val.toFloat()) < 1.0e-7) {
+            candidates.push(v);
+        }
+    }
+    
+    if (candidates.length === 0) return null;
+    
+    for (const entering of candidates) {
+        let leaving = null;
+        let minRatio = Infinity;
+        for (const b of basic) {
+            const coeff = eqs[b][1][entering] || new Fraction(0);
+            if (coeff.toFloat() < -1.0e-7) {
+                const ratio = eqs[b][0].div(coeff.abs()).toFloat();
+                if (ratio < minRatio - 1.0e-7) {
+                    minRatio = ratio;
+                    leaving = b;
+                } else if (Math.abs(ratio - minRatio) < 1.0e-7 && leaving !== null) {
+                    if (varKeyCompare(b, leaving) < 0) {
+                        leaving = b;
+                    }
+                }
+            }
+        }
+        
+        if (leaving !== null) {
+            const p = eqs[leaving][1][entering];
+            const enteringVal = eqs[leaving][0].div(p.neg());
+            
+            const newVals = {};
+            newVals[entering] = enteringVal;
+            newVals[leaving] = new Fraction(0);
+            
+            for (const b of basic) {
+                if (b !== leaving) {
+                    const coeffEnt = eqs[b][1][entering] || new Fraction(0);
+                    newVals[b] = eqs[b][0].add(coeffEnt.mul(enteringVal));
+                }
+            }
+            for (const nb of nonBasic) {
+                if (nb !== entering) {
+                    newVals[nb] = new Fraction(0);
+                }
+            }
+            
+            const sol2 = {};
+            for (let i = 1; i <= numVars; i++) {
+                const sign = varSigns[i - 1] || '>=0';
+                let val;
+                if (sign === '>=0') {
+                    val = newVals[`x${i}`] || new Fraction(0);
+                } else if (sign === '<=0') {
+                    val = (newVals[`x${i}'`] || new Fraction(0)).neg();
+                } else if (sign === 'free') {
+                    val = (newVals[`x${i}+`] || new Fraction(0)).sub(newVals[`x${i}-`] || new Fraction(0));
+                }
+                sol2[`x${i}`] = {
+                    val: val.toFloat(),
+                    str: val.toString()
+                };
+            }
+            return sol2;
+        }
+    }
+    return null;
+}
+
 // Reconstruct original solution from standard solution
 function reconstructOriginalSolution(stdSol, varSigns, numVars) {
     const originalSolution = {};
@@ -1003,9 +1099,9 @@ function solveAllMethodsJS(probType, zCoeffsList, constraintsRaw, varSigns) {
     const c_np = zCoeffsList.map(Number);
     
     const results = {};
-    results.dantzig = solveSimplexJS(eqs, basic, nonBasic, probType, "Dantzig");
-    results.bland = solveSimplexJS(eqs, basic, nonBasic, probType, "Bland");
-    results.two_phase = solve2PhaseSimplexJS(eqs, basic, nonBasic, probType, "Bland");
+    results.dantzig = solveSimplexJS(eqs, basic, nonBasic, probType, "Dantzig", varSigns, numVars);
+    results.bland = solveSimplexJS(eqs, basic, nonBasic, probType, "Bland", varSigns, numVars);
+    results.two_phase = solve2PhaseSimplexJS(eqs, basic, nonBasic, probType, "Bland", varSigns, numVars);
     
     // Reconstruct original solutions
     if (results.dantzig && results.dantzig.optimal_solution) {
@@ -1470,25 +1566,60 @@ function displayResults(data) {
         status = results.geometry.status;
         if (results.geometry.best_z !== null) {
             optimalVal = results.geometry.best_z.toFixed(4);
-            const sol = results.geometry.solution;
-            optimalSol = `x1 = ${sol.x1.toFixed(4)}, x2 = ${sol.x2.toFixed(4)}`;
+            if (status === 'MULTIPLE_OPTIMAL' && results.geometry.p1 && results.geometry.p2) {
+                const p1 = results.geometry.p1;
+                const p2 = results.geometry.p2;
+                optimalSol = `x1 = ${p1[0].toFixed(4)}λ + ${p2[0].toFixed(4)}(1-λ), x2 = ${p1[1].toFixed(4)}λ + ${p2[1].toFixed(4)}(1-λ)`;
+            } else {
+                const sol = results.geometry.solution;
+                optimalSol = `x1 = ${sol.x1.toFixed(4)}, x2 = ${sol.x2.toFixed(4)}`;
+            }
         }
     } else {
         if (results.scipy && results.scipy.success) {
-            status = "OPTIMAL";
-            optimalVal = results.scipy.optimal_value.toFixed(4);
-            optimalSol = Object.entries(results.scipy.solution)
-                .map(([k, v]) => `${k} = ${v.toFixed(4)}`)
-                .join(', ');
+            const hasMultiple = results.two_phase && results.two_phase.success && results.two_phase.multiple_optimal_solution;
+            if (hasMultiple) {
+                status = "MULTIPLE_OPTIMAL";
+                optimalVal = results.two_phase.optimal_value.toFixed(4);
+                const sol1 = results.two_phase.original_solution || reconstructOriginalSolution(results.two_phase.optimal_solution, data.var_signs, data.num_vars);
+                const sol2 = results.two_phase.multiple_optimal_solution;
+                optimalSol = Object.entries(sol1)
+                    .map(([k, v]) => {
+                        const val1 = v.val.toFixed(4);
+                        const val2 = sol2[k].val.toFixed(4);
+                        return val1 === val2 ? `${k} = ${val1}` : `${k} = ${val1}λ + ${val2}(1-λ)`;
+                    })
+                    .join(', ');
+            } else {
+                status = "OPTIMAL";
+                optimalVal = results.scipy.optimal_value.toFixed(4);
+                optimalSol = Object.entries(results.scipy.solution)
+                    .map(([k, v]) => `${k} = ${v.toFixed(4)}`)
+                    .join(', ');
+            }
         } else if (results.two_phase && results.two_phase.status === 'unbounded') {
             status = "UNBOUNDED";
         } else if (results.bland && results.bland.success) {
-            status = "OPTIMAL";
-            optimalVal = results.bland.optimal_value.toFixed(4);
-            const origSol = results.bland.original_solution || reconstructOriginalSolution(results.bland.optimal_solution, data.var_signs, data.num_vars);
-            optimalSol = Object.entries(origSol)
-                .map(([k, v]) => `${k} = ${v.val.toFixed(4)}`)
-                .join(', ');
+            if (results.bland.multiple_optimal_solution) {
+                status = "MULTIPLE_OPTIMAL";
+                optimalVal = results.bland.optimal_value.toFixed(4);
+                const sol1 = results.bland.original_solution || reconstructOriginalSolution(results.bland.optimal_solution, data.var_signs, data.num_vars);
+                const sol2 = results.bland.multiple_optimal_solution;
+                optimalSol = Object.entries(sol1)
+                    .map(([k, v]) => {
+                        const val1 = v.val.toFixed(4);
+                        const val2 = sol2[k].val.toFixed(4);
+                        return val1 === val2 ? `${k} = ${val1}` : `${k} = ${val1}λ + ${val2}(1-λ)`;
+                    })
+                    .join(', ');
+            } else {
+                status = "OPTIMAL";
+                optimalVal = results.bland.optimal_value.toFixed(4);
+                const origSol = results.bland.original_solution || reconstructOriginalSolution(results.bland.optimal_solution, data.var_signs, data.num_vars);
+                optimalSol = Object.entries(origSol)
+                    .map(([k, v]) => `${k} = ${v.val.toFixed(4)}`)
+                    .join(', ');
+            }
         } else if (results.bland && results.bland.status === 'unbounded') {
             status = "UNBOUNDED";
         } else {
@@ -1728,29 +1859,72 @@ function renderSimplexSteps(container, result, probType) {
         
         const zLabel = probType === 'max' ? "cực đại Z (max)" : "cực tiểu Z (min)";
         
-        // Format original solution as a vector x* = (x1, x2) = (4, 0)
-        const origSolList = Object.entries(result.original_solution || {});
         let origSolText = '';
-        if (origSolList.length > 0) {
-            const varNames = origSolList.map(([k, v]) => formatVarHTML(k)).join(', ');
-            const varVals = origSolList.map(([k, v]) => v.str).join(', ');
-            origSolText = `<p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm tối ưu: <b>x* = (${varNames}) = (${varVals})</b></p>`;
+        if (result.multiple_optimal_solution) {
+            const sol1 = result.original_solution;
+            const sol2 = result.multiple_optimal_solution;
+            const varNames = Object.keys(sol1).map(k => formatVarHTML(k)).join(', ');
+            const varVals1 = Object.values(sol1).map(v => v.str).join(', ');
+            const varVals2 = Object.values(sol2).map(v => v.str).join(', ');
+            
+            origSolText = `
+                <p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm cực biên tối ưu thứ nhất: <b>X<sub>1</sub> = (${varNames}) = (${varVals1})</b></p>
+                <p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm cực biên tối ưu thứ hai: <b>X<sub>2</sub> = (${varNames}) = (${varVals2})</b></p>
+                <div style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(16, 185, 129, 0.1); border-left: 3px solid var(--color-success); border-radius: 4px;">
+                    <p style="font-weight: 600; color: var(--color-success);">Nghiệm tổng quát của bài toán (với 0 &le; &lambda; &le; 1):</p>
+                    <ul style="margin-top: 0.25rem; padding-left: 1.25rem; list-style-type: disc;">
+            `;
+            
+            for (const [k, v] of Object.entries(sol1)) {
+                const val1 = v.str;
+                const val2 = sol2[k].str;
+                const varHtml = formatVarHTML(k);
+                if (val1 === val2) {
+                    origSolText += `<li style="margin-top: 0.25rem;">${varHtml} = ${val1}</li>`;
+                } else {
+                    origSolText += `<li style="margin-top: 0.25rem;">${varHtml} = ${val1} &middot; &lambda; + ${val2} &middot; (1 - &lambda;)</li>`;
+                }
+            }
+            origSolText += `
+                    </ul>
+                </div>
+            `;
+            
+            const dictSolList = Object.entries(result.optimal_solution || {})
+                .sort((a, b) => varKeyCompare(a[0], b[0]))
+                .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
+                .join(', ');
+            
+            summary.innerHTML = `
+                <h3>KẾT LUẬN: BÀI TOÁN VÔ SỐ NGHIỆM</h3>
+                <p style="margin-top: 0.5rem; font-size: 1.05rem;">Giá trị tối ưu ${zLabel} = <b>${result.optimal_value_str}</b></p>
+                ${origSolText}
+                <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    <b>Biến chuẩn hóa:</b> ${dictSolList}
+                </p>
+            `;
+        } else {
+            const origSolList = Object.entries(result.original_solution || {});
+            if (origSolList.length > 0) {
+                const varNames = origSolList.map(([k, v]) => formatVarHTML(k)).join(', ');
+                const varVals = origSolList.map(([k, v]) => v.str).join(', ');
+                origSolText = `<p style="margin-top: 0.5rem; font-size: 1.05rem;">Nghiệm tối ưu: <b>x* = (${varNames}) = (${varVals})</b></p>`;
+            }
+            
+            const dictSolList = Object.entries(result.optimal_solution || {})
+                .sort((a, b) => varKeyCompare(a[0], b[0]))
+                .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
+                .join(', ');
+            
+            summary.innerHTML = `
+                <h3>KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU</h3>
+                <p style="margin-top: 0.5rem; font-size: 1.05rem;">Giá trị ${zLabel} = <b>${result.optimal_value_str}</b></p>
+                ${origSolText}
+                <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+                    <b>Biến chuẩn hóa:</b> ${dictSolList}
+                </p>
+            `;
         }
-        
-        // Format dictionary variables in a single line (sorted)
-        const dictSolList = Object.entries(result.optimal_solution || {})
-            .sort((a, b) => varKeyCompare(a[0], b[0]))
-            .map(([k, v]) => `${formatVarHTML(k)} = ${v.str}`)
-            .join(', ');
-        
-        summary.innerHTML = `
-            <h3>KẾT LUẬN: BÀI TOÁN CÓ NGHIỆM TỐI ƯU</h3>
-            <p style="margin-top: 0.5rem; font-size: 1.05rem;">Giá trị ${zLabel} = <b>${result.optimal_value_str}</b></p>
-            ${origSolText}
-            <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
-                <b>Biến chuẩn hóa:</b> ${dictSolList}
-            </p>
-        `;
     } else if (result.status === 'unbounded') {
         summary.style.borderTop = '3px solid var(--color-danger)';
         const zLimit = probType === 'max' ? "+&infin; (+Vô cùng)" : "-&infin; (-Vô cùng)";
